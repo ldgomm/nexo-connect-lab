@@ -1,6 +1,6 @@
-package com.premierdarkcoffee.nexo.connect.lab.health
+package com.premierdarkcoffee.nexo.backend.health
 
-import com.premierdarkcoffee.nexo.connect.lab.config.*
+import com.premierdarkcoffee.nexo.infrastructure.config.*
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.response.*

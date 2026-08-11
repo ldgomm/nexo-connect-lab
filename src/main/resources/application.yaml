@@ -3,8 +3,8 @@ ktor:
     port: ${CONNECT_LAB_HTTP_PORT:8282}
   application:
     modules:
-      - com.premierdarkcoffee.nexo.connect.lab.config.ConnectLabConfigKt.configureTypedConfiguration
-      - com.premierdarkcoffee.nexo.RoutingKt.configureRouting
+      - com.premierdarkcoffee.nexo.infrastructure.config.ConnectLabConfigKt.configureTypedConfiguration
+      - com.premierdarkcoffee.nexo.backend.RoutingKt.configureRouting
 
 nexoConnectLab:
   serviceName: ${CONNECT_LAB_SERVICE_NAME:nexo-connect-lab}

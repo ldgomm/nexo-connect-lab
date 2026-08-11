@@ -1,4 +1,4 @@
-package com.premierdarkcoffee.nexo.connect.lab.config
+package com.premierdarkcoffee.nexo.infrastructure.config
 
 import io.ktor.server.config.MapApplicationConfig
 import kotlin.test.Test

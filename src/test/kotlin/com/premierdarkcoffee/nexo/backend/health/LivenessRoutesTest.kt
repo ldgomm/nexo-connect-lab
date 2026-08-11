@@ -1,4 +1,4 @@
-package com.premierdarkcoffee.nexo.connect.lab.health
+package com.premierdarkcoffee.nexo.backend.health
 
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText

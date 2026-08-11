@@ -1,4 +1,4 @@
-package com.premierdarkcoffee.nexo
+package com.premierdarkcoffee.nexo.backend
 
 import io.ktor.client.request.get
 import io.ktor.http.HttpStatusCode

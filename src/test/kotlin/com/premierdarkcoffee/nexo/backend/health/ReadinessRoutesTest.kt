@@ -1,6 +1,6 @@
-package com.premierdarkcoffee.nexo.connect.lab.health
+package com.premierdarkcoffee.nexo.backend.health
 
-import com.premierdarkcoffee.nexo.configureRouting
+import com.premierdarkcoffee.nexo.backend.configureRouting
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
