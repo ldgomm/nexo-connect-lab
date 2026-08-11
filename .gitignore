@@ -15,6 +15,7 @@ out/
 .env
 .env.*
 !.env.example
+!.env.host.example
 
 # Local machine files and logs
 local.properties
