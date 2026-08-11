@@ -1,4 +1,4 @@
-package com.premierdarkcoffee.nexo.infrastructure.config
+package com.premierdarkcoffee.nexo.connect.lab.infrastructure.config
 
 import io.ktor.server.application.*
 import io.ktor.server.config.*

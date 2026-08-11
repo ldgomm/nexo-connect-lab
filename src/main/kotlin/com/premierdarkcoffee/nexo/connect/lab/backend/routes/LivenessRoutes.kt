@@ -1,4 +1,4 @@
-package com.premierdarkcoffee.nexo.backend.health
+package com.premierdarkcoffee.nexo.connect.lab.backend.routes
 
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode

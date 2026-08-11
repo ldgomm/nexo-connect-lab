@@ -1,5 +1,8 @@
-package com.premierdarkcoffee.nexo.infrastructure.config
+package com.premierdarkcoffee.nexo.connect.lab.infrastructure.config
 
+import com.premierdarkcoffee.nexo.connect.lab.infrastructure.config.ConnectLabConfigLoader
+import com.premierdarkcoffee.nexo.connect.lab.infrastructure.config.ConnectLabEnvironment
+import com.premierdarkcoffee.nexo.connect.lab.infrastructure.config.ConnectLabIdentityMode
 import io.ktor.server.config.MapApplicationConfig
 import kotlin.test.Test
 import kotlin.test.assertEquals
