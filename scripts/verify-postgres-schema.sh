@@ -1,0 +1,255 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+PROJECT_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd -P)"
+ENV_FILE="${PROJECT_DIR}/.env"
+COMPOSE_FILE="${PROJECT_DIR}/compose.yaml"
+
+if [[ ! -f "$ENV_FILE" || ! -f "$COMPOSE_FILE" ]]; then
+    printf 'ERROR=POSTGRES_SCHEMA_LOCAL_CONTRACT_MISSING\n' >&2
+    exit 2
+fi
+
+read_env_value() {
+    local key="$1"
+    awk -F= -v key="$key" '
+        $1 == key {
+            value = substr($0, index($0, "=") + 1)
+            print value
+            found = 1
+            exit
+        }
+        END {
+            if (!found) exit 1
+        }
+    ' "$ENV_FILE"
+}
+
+POSTGRES_USER="$(read_env_value CONNECT_LAB_POSTGRES_USER)"
+DATABASE_NAME="$(read_env_value CONNECT_LAB_DATABASE_NAME)"
+
+if [[ ! "$POSTGRES_USER" =~ ^[a-z0-9_]+$ ]] || [[ ! "$DATABASE_NAME" =~ ^[a-z0-9_]+$ ]]; then
+    printf 'ERROR=POSTGRES_SCHEMA_ENV_VALUE_INVALID\n' >&2
+    exit 3
+fi
+
+compose() {
+    docker compose --env-file "$ENV_FILE" --file "$COMPOSE_FILE" "$@"
+}
+
+if [[ -z "$(compose ps -q postgres)" ]]; then
+    printf 'ERROR=POSTGRES_SCHEMA_RUNTIME_NOT_STARTED\n' >&2
+    exit 4
+fi
+
+compose --profile migration run --rm --no-deps flyway migrate
+printf 'FLYWAY_MIGRATE=PASS\n'
+
+compose --profile migration run --rm --no-deps flyway validate
+printf 'FLYWAY_VALIDATE=PASS\n'
+
+query_scalar() {
+    compose exec -T postgres psql -X -v ON_ERROR_STOP=1 \
+        -U "$POSTGRES_USER" -d "$DATABASE_NAME" -tAc "$1" | tr -d '[:space:]'
+}
+
+if [[ "$(query_scalar "SELECT count(*) FROM public.flyway_schema_history WHERE version = '1' AND success")" != "1" ]]; then
+    printf 'ERROR=FLYWAY_HISTORY_VERSION_ONE_MISSING\n' >&2
+    exit 5
+fi
+
+if [[ "$(query_scalar "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'connect' AND table_name IN ('conversations','conversation_participants','messages','message_identities')")" != "4" ]]; then
+    printf 'ERROR=POSTGRES_SCHEMA_TABLE_SET_MISMATCH\n' >&2
+    exit 6
+fi
+
+if [[ "$(query_scalar "SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace WHERE n.nspname = 'connect' AND c.conname IN ('pk_connect_conversations','pk_connect_conversation_participants','pk_connect_messages','uq_connect_message_conversation_sequence','uq_connect_identity_idempotency','uq_connect_identity_client_message','pk_connect_message_identities','fk_connect_message_sender_participant','fk_connect_identity_message')")" != "9" ]]; then
+    printf 'ERROR=POSTGRES_SCHEMA_A4_CONSTRAINT_SET_MISMATCH\n' >&2
+    exit 7
+fi
+printf 'POSTGRES_SCHEMA_OBJECTS=PASS\n'
+
+compose exec -T postgres psql -X -v ON_ERROR_STOP=1 \
+    -U "$POSTGRES_USER" -d "$DATABASE_NAME" <<'SQL'
+BEGIN;
+
+INSERT INTO connect.conversations (
+    conversation_ref, conversation_type, platform_scope_ref,
+    organization_scope_ref, business_scope_ref, status,
+    created_at, last_message_sequence, version, schema_version
+) VALUES (
+    'conversation-1', 'BUSINESS_CLIENT', 'platform-1',
+    'organization-1', 'business-1', 'ACTIVE',
+    '2026-08-11T20:00:00Z', 2, 2, 1
+);
+
+INSERT INTO connect.conversation_participants (
+    conversation_ref, subject_ref, actor_type, status,
+    capabilities, joined_at, left_at
+) VALUES
+    ('conversation-1', 'business-subject-1', 'BUSINESS', 'ACTIVE', ARRAY['SEND_TEXT'], '2026-08-11T20:00:00Z', NULL),
+    ('conversation-1', 'client-subject-1', 'CLIENT', 'ACTIVE', ARRAY['SEND_TEXT'], '2026-08-11T20:00:00Z', NULL);
+
+INSERT INTO connect.messages (
+    server_message_ref, conversation_ref, sequence,
+    sender_subject_ref, sender_actor_type, message_type,
+    status, body, payload_fingerprint, accepted_at_server, schema_version
+) VALUES
+    ('server-message-1', 'conversation-1', 1,
+     'business-subject-1', 'BUSINESS', 'TEXT',
+     'PERSISTED', 'Hello', 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+     '2026-08-11T20:00:01Z', 1),
+    ('server-message-2', 'conversation-1', 2,
+     'business-subject-1', 'BUSINESS', 'TEXT',
+     'PERSISTED', 'Again', 'sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+     '2026-08-11T20:00:02Z', 1);
+
+INSERT INTO connect.message_identities (
+    server_message_ref, platform_scope_ref, conversation_ref,
+    sender_subject_ref, idempotency_key, client_message_ref,
+    payload_fingerprint, sequence
+) VALUES (
+    'server-message-1', 'platform-1', 'conversation-1',
+    'business-subject-1', 'idempotency-key-1', 'client-message-1',
+    'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 1
+);
+
+DO $probe$
+DECLARE actual_constraint text;
+BEGIN
+    BEGIN
+        INSERT INTO connect.messages (
+            server_message_ref, conversation_ref, sequence,
+            sender_subject_ref, sender_actor_type, message_type,
+            status, body, payload_fingerprint, accepted_at_server, schema_version
+        ) VALUES (
+            'server-message-duplicate-sequence', 'conversation-1', 1,
+            'business-subject-1', 'BUSINESS', 'TEXT',
+            'PERSISTED', 'Duplicate', 'sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+            '2026-08-11T20:00:03Z', 1
+        );
+        RAISE EXCEPTION 'duplicate sequence was accepted';
+    EXCEPTION WHEN unique_violation THEN
+        GET STACKED DIAGNOSTICS actual_constraint = CONSTRAINT_NAME;
+        IF actual_constraint <> 'uq_connect_message_conversation_sequence' THEN
+            RAISE EXCEPTION 'unexpected duplicate sequence constraint: %', actual_constraint;
+        END IF;
+    END;
+
+    BEGIN
+        INSERT INTO connect.message_identities (
+            server_message_ref, platform_scope_ref, conversation_ref,
+            sender_subject_ref, idempotency_key, client_message_ref,
+            payload_fingerprint, sequence
+        ) VALUES (
+            'server-message-2', 'platform-1', 'conversation-1',
+            'business-subject-1', 'idempotency-key-1', 'client-message-2',
+            'sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 2
+        );
+        RAISE EXCEPTION 'duplicate idempotency key was accepted';
+    EXCEPTION WHEN unique_violation THEN
+        GET STACKED DIAGNOSTICS actual_constraint = CONSTRAINT_NAME;
+        IF actual_constraint <> 'uq_connect_identity_idempotency' THEN
+            RAISE EXCEPTION 'unexpected idempotency constraint: %', actual_constraint;
+        END IF;
+    END;
+
+    BEGIN
+        INSERT INTO connect.message_identities (
+            server_message_ref, platform_scope_ref, conversation_ref,
+            sender_subject_ref, idempotency_key, client_message_ref,
+            payload_fingerprint, sequence
+        ) VALUES (
+            'server-message-2', 'platform-1', 'conversation-1',
+            'business-subject-1', 'idempotency-key-2', 'client-message-1',
+            'sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 2
+        );
+        RAISE EXCEPTION 'duplicate clientMessageRef was accepted';
+    EXCEPTION WHEN unique_violation THEN
+        GET STACKED DIAGNOSTICS actual_constraint = CONSTRAINT_NAME;
+        IF actual_constraint <> 'uq_connect_identity_client_message' THEN
+            RAISE EXCEPTION 'unexpected client message constraint: %', actual_constraint;
+        END IF;
+    END;
+
+    BEGIN
+        INSERT INTO connect.message_identities (
+            server_message_ref, platform_scope_ref, conversation_ref,
+            sender_subject_ref, idempotency_key, client_message_ref,
+            payload_fingerprint, sequence
+        ) VALUES (
+            'server-message-1', 'platform-1', 'conversation-1',
+            'business-subject-1', 'idempotency-key-3', 'client-message-3',
+            'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 1
+        );
+        RAISE EXCEPTION 'second identity binding was accepted';
+    EXCEPTION WHEN unique_violation THEN
+        GET STACKED DIAGNOSTICS actual_constraint = CONSTRAINT_NAME;
+        IF actual_constraint <> 'pk_connect_message_identities' THEN
+            RAISE EXCEPTION 'unexpected one-to-one constraint: %', actual_constraint;
+        END IF;
+    END;
+
+    BEGIN
+        INSERT INTO connect.messages (
+            server_message_ref, conversation_ref, sequence,
+            sender_subject_ref, sender_actor_type, message_type,
+            status, body, payload_fingerprint, accepted_at_server, schema_version
+        ) VALUES (
+            'server-message-unknown-sender', 'conversation-1', 3,
+            'unknown-subject', 'BUSINESS', 'TEXT',
+            'PERSISTED', 'Unknown', 'sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd',
+            '2026-08-11T20:00:03Z', 1
+        );
+        RAISE EXCEPTION 'unknown sender was accepted';
+    EXCEPTION WHEN foreign_key_violation THEN
+        GET STACKED DIAGNOSTICS actual_constraint = CONSTRAINT_NAME;
+        IF actual_constraint <> 'fk_connect_message_sender_participant' THEN
+            RAISE EXCEPTION 'unexpected sender foreign key: %', actual_constraint;
+        END IF;
+    END;
+
+    BEGIN
+        INSERT INTO connect.message_identities (
+            server_message_ref, platform_scope_ref, conversation_ref,
+            sender_subject_ref, idempotency_key, client_message_ref,
+            payload_fingerprint, sequence
+        ) VALUES (
+            'server-message-2', 'wrong-platform', 'conversation-1',
+            'business-subject-1', 'idempotency-key-scope', 'client-message-scope',
+            'sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 2
+        );
+        RAISE EXCEPTION 'wrong platform scope was accepted';
+    EXCEPTION WHEN foreign_key_violation THEN
+        GET STACKED DIAGNOSTICS actual_constraint = CONSTRAINT_NAME;
+        IF actual_constraint <> 'fk_connect_identity_conversation_scope' THEN
+            RAISE EXCEPTION 'unexpected scope foreign key: %', actual_constraint;
+        END IF;
+    END;
+
+    BEGIN
+        INSERT INTO connect.conversations (
+            conversation_ref, conversation_type, platform_scope_ref,
+            organization_scope_ref, business_scope_ref, status,
+            created_at, last_message_sequence, version, schema_version
+        ) VALUES (
+            repeat('é', 129), 'BUSINESS_CLIENT', 'platform-limit',
+            'organization-limit', 'business-limit', 'ACTIVE',
+            '2026-08-11T20:00:00Z', 0, 0, 1
+        );
+        RAISE EXCEPTION 'oversized UTF-8 reference was accepted';
+    EXCEPTION WHEN check_violation THEN
+        GET STACKED DIAGNOSTICS actual_constraint = CONSTRAINT_NAME;
+        IF actual_constraint <> 'ck_connect_conversation_ref' THEN
+            RAISE EXCEPTION 'unexpected UTF-8 limit constraint: %', actual_constraint;
+        END IF;
+    END;
+END
+$probe$;
+
+ROLLBACK;
+SQL
+
+printf 'POSTGRES_CONSTRAINT_PROBES=PASS\n'

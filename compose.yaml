@@ -115,6 +115,33 @@ services:
     networks:
       - connect-lab-local
 
+  flyway:
+    image: flyway/flyway:13.2.0
+    profiles:
+      - migration
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      FLYWAY_URL: jdbc:${CONNECT_LAB_POSTGRES_JDBC_SCHEME:-postgresql}://postgres:5432/${CONNECT_LAB_DATABASE_NAME:?CONNECT_LAB_DATABASE_NAME is required}
+      FLYWAY_USER: ${CONNECT_LAB_POSTGRES_USER:?CONNECT_LAB_POSTGRES_USER is required}
+      FLYWAY_PASSWORD: ${CONNECT_LAB_POSTGRES_PASSWORD:?CONNECT_LAB_POSTGRES_PASSWORD is required}
+      FLYWAY_CONNECT_RETRIES: "30"
+      FLYWAY_LOCATIONS: filesystem:/flyway/sql
+    command:
+      - migrate
+    volumes:
+      - ./src/main/resources/db/migration:/flyway/sql:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - connect-lab-local
+
 networks:
   # A dedicated normal bridge is intentional. Docker Desktop does not publish
   # host ports for services attached only to an `internal: true` network.

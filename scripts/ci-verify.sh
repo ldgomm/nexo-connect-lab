@@ -52,7 +52,7 @@ finish() {
     fi
 
     if [[ "$STACK_MAY_EXIST" -eq 1 ]]; then
-        if compose --profile setup down --volumes --remove-orphans; then
+        if compose --profile setup --profile migration down --volumes --remove-orphans; then
             CLEANUP_RESULT="PASS"
         else
             CLEANUP_RESULT="FAIL"
@@ -112,6 +112,7 @@ required_files=(
     scripts/ci-verify.sh
     scripts/generate-local-env.sh
     scripts/smoke-local-stack.sh
+    scripts/verify-postgres-schema.sh
     settings.gradle.kts
 )
 
@@ -196,6 +197,7 @@ done
 
 bash -n scripts/generate-local-env.sh
 bash -n scripts/smoke-local-stack.sh
+bash -n scripts/verify-postgres-schema.sh
 bash -n scripts/ci-verify.sh
 git diff --check
 printf 'CI_STATIC_CONTRACT=PASS\n'
@@ -254,7 +256,7 @@ if [[ "$(resource_count container)" != "0" || \
     exit 25
 fi
 
-compose --profile setup config --quiet
+compose --profile setup --profile migration config --quiet
 printf 'COMPOSE_CONFIG=PASS\n'
 
 ./gradlew --no-daemon clean test --console=plain
@@ -296,3 +298,6 @@ printf 'RUNTIME_ISOLATION=PASS\n'
 
 ./scripts/smoke-local-stack.sh
 printf 'STACK_SMOKE=PASS\n'
+
+./scripts/verify-postgres-schema.sh
+printf 'POSTGRES_SCHEMA_CONTRACT=PASS\n'
