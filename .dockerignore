@@ -1,0 +1,13 @@
+.git
+.gitignore
+.gradle
+.kotlin
+.idea
+build
+out
+*.iml
+.DS_Store
+.env
+.env.*
+local.properties
+*.log
