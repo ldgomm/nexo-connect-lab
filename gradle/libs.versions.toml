@@ -1,9 +1,13 @@
 [versions]
+hikari = "7.1.0"
 kotlin = "2.4.0"
 logback = "1.5.35"
+postgresql-jdbc = "42.7.13"
 
 [libraries]
+hikari = { module = "com.zaxxer:HikariCP", version.ref = "hikari" }
 logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
+postgresql-jdbc = { module = "org.postgresql:postgresql", version.ref = "postgresql-jdbc" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }

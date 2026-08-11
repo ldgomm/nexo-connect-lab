@@ -112,6 +112,7 @@ required_files=(
     scripts/ci-verify.sh
     scripts/generate-local-env.sh
     scripts/smoke-local-stack.sh
+    scripts/verify-postgres-repository.sh
     scripts/verify-postgres-schema.sh
     settings.gradle.kts
 )
@@ -137,7 +138,7 @@ if ! git check-ignore -q .env || git ls-files --error-unmatch .env >/dev/null 2>
 fi
 
 if git grep -n -E \
-    '(mongodb\+srv://|postgres(ql)?://|redis://|localhost:8080|@nexo\.test|NexoSuper|NexoStaging|BEGIN [A-Z ]*PRIVATE KEY|sk-[A-Za-z0-9_-]{16,})' \
+    '(mongodb\+srv://|postgres(ql)?://[^[:space:]/:@]+:[^[:space:]@]+@|redis://|localhost:8080|@nexo\.test|NexoSuper|NexoStaging|BEGIN [A-Z ]*PRIVATE KEY|sk-[A-Za-z0-9_-]{16,})' \
     -- . ':!.github/workflows/ci.yml' ':!scripts/ci-verify.sh'; then
     printf 'CI_STATIC_CONTRACT=FAIL\n' >&2
     printf 'ERROR=FORBIDDEN_SECRET_OR_NEXO_ENDPOINT_PRESENT\n' >&2
@@ -197,6 +198,7 @@ done
 
 bash -n scripts/generate-local-env.sh
 bash -n scripts/smoke-local-stack.sh
+bash -n scripts/verify-postgres-repository.sh
 bash -n scripts/verify-postgres-schema.sh
 bash -n scripts/ci-verify.sh
 git diff --check
@@ -301,3 +303,6 @@ printf 'STACK_SMOKE=PASS\n'
 
 ./scripts/verify-postgres-schema.sh
 printf 'POSTGRES_SCHEMA_CONTRACT=PASS\n'
+
+./scripts/verify-postgres-repository.sh
+printf 'POSTGRES_REPOSITORY_CONTRACT=PASS\n'

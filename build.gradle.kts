@@ -17,8 +17,28 @@ dependencies {
     implementation(ktorLibs.server.config.yaml)
     implementation(ktorLibs.server.core)
     implementation(ktorLibs.server.netty)
+    implementation(libs.hikari)
     implementation(libs.logback.classic)
+    runtimeOnly(libs.postgresql.jdbc)
 
     testImplementation(kotlin("test"))
     testImplementation(ktorLibs.server.testHost)
+}
+
+val postgresIntegrationTest = sourceSets.create("postgresIntegrationTest") {
+    compileClasspath += sourceSets.main.get().output
+    runtimeClasspath += sourceSets.main.get().output
+}
+
+configurations[postgresIntegrationTest.implementationConfigurationName]
+    .extendsFrom(configurations.testImplementation.get())
+configurations[postgresIntegrationTest.runtimeOnlyConfigurationName]
+    .extendsFrom(configurations.testRuntimeOnly.get())
+
+tasks.register<Test>("postgresIntegrationTest") {
+    description = "Runs the PostgreSQL repository integration contract."
+    group = "verification"
+    testClassesDirs = postgresIntegrationTest.output.classesDirs
+    classpath = postgresIntegrationTest.runtimeClasspath
+    shouldRunAfter(tasks.test)
 }
