@@ -1,8 +1,8 @@
 package com.premierdarkcoffee.nexo.connect.lab.config
 
-import io.ktor.server.application.Application
-import io.ktor.server.config.ApplicationConfig
-import io.ktor.util.AttributeKey
+import io.ktor.server.application.*
+import io.ktor.server.config.*
+import io.ktor.util.*
 
 enum class ConnectLabEnvironment {
     LOCAL,
