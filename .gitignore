@@ -1,0 +1,21 @@
+# macOS
+.DS_Store
+
+# IntelliJ IDEA
+.idea/
+*.iml
+
+# Gradle and Kotlin local outputs
+.gradle/
+.kotlin/
+build/
+out/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Local machine files and logs
+local.properties
+*.log
