@@ -2,7 +2,9 @@ package com.premierdarkcoffee.nexo.connect.lab.application.conversation
 
 import com.premierdarkcoffee.nexo.connect.lab.application.identity.IdentityVerificationResult
 import com.premierdarkcoffee.nexo.connect.lab.domain.conversation.ConversationAccessScope
-import com.premierdarkcoffee.nexo.connect.lab.domain.identity.ConnectActorRole
+import com.premierdarkcoffee.nexo.connect.lab.domain.conversation.ConversationParticipant
+import com.premierdarkcoffee.nexo.connect.lab.domain.conversation.ConversationType
+import com.premierdarkcoffee.nexo.connect.lab.domain.identity.ConnectActorType
 import com.premierdarkcoffee.nexo.connect.lab.domain.identity.ConnectPrincipal
 import com.premierdarkcoffee.nexo.connect.lab.infrastructure.identity.SyntheticTokenVerifier
 import kotlin.test.Test
@@ -18,23 +20,29 @@ class SyntheticParticipantIsolationTest {
                 "synthetic-client-alpha-token" to
                     ConnectPrincipal(
                         subjectRef = "synthetic-client-alpha",
-                        role = ConnectActorRole.CLIENT,
+                        actorType = ConnectActorType.CLIENT,
+                        platformScopeRef = "synthetic-platform",
                     ),
                 "synthetic-client-outsider-token" to
                     ConnectPrincipal(
                         subjectRef = "synthetic-client-outsider",
-                        role = ConnectActorRole.CLIENT,
+                        actorType = ConnectActorType.CLIENT,
+                        platformScopeRef = "synthetic-platform",
                     ),
                 "synthetic-business-alpha-token" to
                     ConnectPrincipal(
                         subjectRef = "synthetic-agent-alpha",
-                        role = ConnectActorRole.BUSINESS_AGENT,
+                        actorType = ConnectActorType.BUSINESS,
+                        platformScopeRef = "synthetic-platform",
+                        organizationScopeRef = "synthetic-organization-alpha",
                         businessScopeRef = "synthetic-business-alpha",
                     ),
                 "synthetic-business-cross-scope-token" to
                     ConnectPrincipal(
                         subjectRef = "synthetic-agent-cross-scope",
-                        role = ConnectActorRole.BUSINESS_AGENT,
+                        actorType = ConnectActorType.BUSINESS,
+                        platformScopeRef = "synthetic-platform",
+                        organizationScopeRef = "synthetic-organization-beta",
                         businessScopeRef = "synthetic-business-beta",
                     ),
             ),
@@ -43,12 +51,15 @@ class SyntheticParticipantIsolationTest {
     private val conversation =
         ConversationAccessScope(
             conversationRef = "synthetic-conversation-alpha",
-            publicBusinessRef = "synthetic-business-alpha",
-            participantSubjectRefs =
+            type = ConversationType.BUSINESS_CLIENT,
+            platformScopeRef = "synthetic-platform",
+            organizationScopeRef = "synthetic-organization-alpha",
+            businessScopeRef = "synthetic-business-alpha",
+            participants =
                 setOf(
-                    "synthetic-client-alpha",
-                    "synthetic-agent-alpha",
-                    "synthetic-agent-cross-scope",
+                    ConversationParticipant("synthetic-client-alpha", ConnectActorType.CLIENT),
+                    ConversationParticipant("synthetic-agent-alpha", ConnectActorType.BUSINESS),
+                    ConversationParticipant("synthetic-agent-cross-scope", ConnectActorType.BUSINESS),
                 ),
         )
 
@@ -57,6 +68,19 @@ class SyntheticParticipantIsolationTest {
         val authentication =
             assertIs<IdentityVerificationResult.Authenticated>(
                 verifier.verify("synthetic-business-alpha-token"),
+            )
+
+        assertEquals(
+            ConversationAccessDecision.ALLOW,
+            authorizer.decide(authentication.principal, conversation),
+        )
+    }
+
+    @Test
+    fun `allows a known client only through explicit membership`() {
+        val authentication =
+            assertIs<IdentityVerificationResult.Authenticated>(
+                verifier.verify("synthetic-client-alpha-token"),
             )
 
         assertEquals(

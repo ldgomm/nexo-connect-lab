@@ -1,7 +1,7 @@
 package com.premierdarkcoffee.nexo.connect.lab.application.conversation
 
 import com.premierdarkcoffee.nexo.connect.lab.domain.conversation.ConversationAccessScope
-import com.premierdarkcoffee.nexo.connect.lab.domain.identity.ConnectActorRole
+import com.premierdarkcoffee.nexo.connect.lab.domain.identity.ConnectActorType
 import com.premierdarkcoffee.nexo.connect.lab.domain.identity.ConnectPrincipal
 
 enum class ConversationAccessDecision {
@@ -14,18 +14,33 @@ class ConversationParticipantAuthorizer {
         principal: ConnectPrincipal,
         scope: ConversationAccessScope,
     ): ConversationAccessDecision {
-        if (principal.subjectRef !in scope.participantSubjectRefs) {
+        if (!scope.type.isImplemented || principal.platformScopeRef != scope.platformScopeRef) {
             return ConversationAccessDecision.DENY
         }
 
-        return when (principal.role) {
-            ConnectActorRole.CLIENT -> ConversationAccessDecision.ALLOW
-            ConnectActorRole.BUSINESS_AGENT ->
-                if (principal.businessScopeRef == scope.publicBusinessRef) {
+        val participant =
+            scope.participants.singleOrNull { candidate ->
+                candidate.subjectRef == principal.subjectRef &&
+                    candidate.actorType == principal.actorType
+            } ?: return ConversationAccessDecision.DENY
+
+        return when (participant.actorType) {
+            ConnectActorType.CLIENT ->
+                ConversationAccessDecision.ALLOW
+
+            ConnectActorType.BUSINESS ->
+                if (
+                    principal.organizationScopeRef == scope.organizationScopeRef &&
+                    principal.businessScopeRef == scope.businessScopeRef
+                ) {
                     ConversationAccessDecision.ALLOW
                 } else {
                     ConversationAccessDecision.DENY
                 }
+
+            ConnectActorType.SUPERADMIN,
+            ConnectActorType.ADMIN,
+            -> ConversationAccessDecision.DENY
         }
     }
 }
