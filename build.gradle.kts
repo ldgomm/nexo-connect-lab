@@ -1,5 +1,6 @@
 plugins {
     alias(libs.plugins.kotlin.jvm)
+    alias(libs.plugins.kotlin.serialization)
     alias(ktorLibs.plugins.ktor)
 }
 
@@ -17,13 +18,18 @@ dependencies {
     implementation(libs.flyway.core)
     implementation(ktorLibs.server.config.yaml)
     implementation(ktorLibs.server.core)
+    implementation(ktorLibs.server.auth)
     implementation(ktorLibs.server.netty)
+    implementation(ktorLibs.server.websockets)
+    implementation(ktorLibs.serialization.kotlinx.json)
     implementation(libs.hikari)
     implementation(libs.logback.classic)
     runtimeOnly(libs.flyway.database.postgresql)
     runtimeOnly(libs.postgresql.jdbc)
 
     testImplementation(kotlin("test"))
+    testImplementation(ktorLibs.client.cio)
+    testImplementation(ktorLibs.client.websockets)
     testImplementation(ktorLibs.server.testHost)
 }
 

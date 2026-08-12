@@ -113,6 +113,7 @@ required_files=(
     scripts/ci-verify.sh
     scripts/generate-local-env.sh
     scripts/smoke-local-stack.sh
+    scripts/verify-authenticated-websocket.sh
     scripts/verify-database-lifecycle.sh
     scripts/verify-durable-restart-recovery.sh
     scripts/verify-postgres-repository.sh
@@ -120,6 +121,9 @@ required_files=(
     settings.gradle.kts
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/persistence/ConversationRepository.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/persistence/DurableMessageHistoryRepository.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/realtime/RealtimeTransport.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/RealtimeProtocol.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/conversation/DurableConversationListing.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/conversation/CreateBusinessClientConversationCommand.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/conversation/DurableConversationSnapshot.kt
@@ -129,6 +133,7 @@ required_files=(
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresConversationRepository.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresDurableMessageHistoryRepository.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresDatabaseLifecycle.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/identity/SyntheticRealtimeIdentityRegistry.kt
     src/main/resources/db/migration/V2__connect_application_role_grants.sql
     src/main/resources/db/migration/V3__business_client_conversation_keys.sql
     src/main/resources/db/migration/V4__durable_conversation_activity_listing.sql
@@ -139,6 +144,10 @@ required_files=(
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/persistence/BusinessClientConversationPersistenceBundleTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/conversation/DurableConversationListingTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/message/DurableMessageHistoryTest.kt
+    src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutesTest.kt
+    src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRuntimeTest.kt
+    src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/RealtimeProtocolTest.kt
+    src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/identity/SyntheticRealtimeIdentityRegistryTest.kt
 )
 
 for required_file in "${required_files[@]}"; do
@@ -224,6 +233,7 @@ done
 
 bash -n scripts/generate-local-env.sh
 bash -n scripts/smoke-local-stack.sh
+bash -n scripts/verify-authenticated-websocket.sh
 bash -n scripts/verify-database-lifecycle.sh
 bash -n scripts/verify-durable-restart-recovery.sh
 bash -n scripts/verify-postgres-repository.sh
@@ -309,6 +319,32 @@ if grep -En 'route\(|webSocket|WebSocket|/messages|/conversations' \
     printf 'ERROR=CONNECT_B7_DURABLE_RESTART_RECOVERY_CONTRACT_MISMATCH\n' >&2
     exit 20
 fi
+
+if ! grep -Fq 'io.ktor:ktor-version-catalog:3.5.2' settings.gradle.kts ||
+    ! grep -Fq 'implementation(ktorLibs.server.websockets)' build.gradle.kts ||
+    ! grep -Fq 'implementation(ktorLibs.server.auth)' build.gradle.kts ||
+    ! grep -Fq 'webSocket("/v1/realtime")' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt ||
+    ! grep -Fq 'authenticate(REALTIME_AUTH_PROVIDER)' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt ||
+    ! grep -Fq 'maxFrameSize = RealtimeProtocol.MAX_TEXT_FRAME_BYTES' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/realtime/RealtimeTransport.kt ||
+    ! grep -Fq 'ServerRealtimeFrameType.AUTH_OK' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt ||
+    ! grep -Fq 'INCOMPATIBLE_PROTOCOL_MAJOR' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/RealtimeProtocol.kt ||
+    ! grep -Fq 'BINARY_FRAMES_UNSUPPORTED' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt ||
+    grep -En 'SUBSCRIBE_CONVERSATION|MESSAGE_CREATED|ACK_DELIVERY|UPDATE_READ_CURSOR|TYPING_(START|STOP)|PRESENCE_CHANGED|RESYNC_REQUIRED' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/realtime/RealtimeTransport.kt \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/RealtimeProtocol.kt ||
+    grep -En '(token|bearerToken|credential)[[:space:]]*:' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/RealtimeProtocol.kt; then
+    printf 'CI_STATIC_CONTRACT=FAIL\n' >&2
+    printf 'ERROR=CONNECT_C1_AUTHENTICATED_WEBSOCKET_CONTRACT_MISMATCH\n' >&2
+    exit 20
+fi
 printf 'CI_STATIC_CONTRACT=PASS\n'
 
 if [[ -e "$ENV_FILE" || -L "$ENV_FILE" ]]; then
@@ -355,6 +391,20 @@ for exact_env in \
         exit 23
     fi
 done
+
+business_token="$(awk -F= '$1 == "CONNECT_LAB_SYNTHETIC_BUSINESS_TOKEN" { print substr($0, index($0, "=") + 1); count++ } END { if (count != 1) exit 1 }' "$ENV_FILE")" || {
+    printf 'ERROR=LOCAL_ENV_SYNTHETIC_IDENTITY_CONTRACT_MISMATCH\n' >&2
+    exit 23
+}
+client_token="$(awk -F= '$1 == "CONNECT_LAB_SYNTHETIC_CLIENT_TOKEN" { print substr($0, index($0, "=") + 1); count++ } END { if (count != 1) exit 1 }' "$ENV_FILE")" || {
+    printf 'ERROR=LOCAL_ENV_SYNTHETIC_IDENTITY_CONTRACT_MISMATCH\n' >&2
+    exit 23
+}
+if [[ ${#business_token} -lt 32 || ${#client_token} -lt 32 || "$business_token" == "$client_token" ]]; then
+    printf 'ERROR=LOCAL_ENV_SYNTHETIC_IDENTITY_CONTRACT_MISMATCH\n' >&2
+    exit 23
+fi
+unset business_token client_token
 
 if ! command -v docker >/dev/null 2>&1 || ! docker version >/dev/null 2>&1 || ! docker compose version >/dev/null 2>&1; then
     printf 'ERROR=DOCKER_ENGINE_OR_COMPOSE_UNAVAILABLE\n' >&2
@@ -410,6 +460,9 @@ printf 'RUNTIME_ISOLATION=PASS\n'
 
 ./scripts/smoke-local-stack.sh
 printf 'STACK_SMOKE=PASS\n'
+
+./scripts/verify-authenticated-websocket.sh
+printf 'AUTHENTICATED_WEBSOCKET_CONTRACT=PASS\n'
 
 ./scripts/verify-postgres-schema.sh
 printf 'POSTGRES_SCHEMA_CONTRACT=PASS\n'
