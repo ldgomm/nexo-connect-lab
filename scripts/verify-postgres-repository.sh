@@ -30,6 +30,8 @@ read_env_value() {
 POSTGRES_HOST_PORT="$(read_env_value CONNECT_LAB_POSTGRES_HOST_PORT)"
 POSTGRES_USER="$(read_env_value CONNECT_LAB_POSTGRES_USER)"
 POSTGRES_PASSWORD="$(read_env_value CONNECT_LAB_POSTGRES_PASSWORD)"
+POSTGRES_APP_USER="$(read_env_value CONNECT_LAB_POSTGRES_APP_USER)"
+POSTGRES_APP_PASSWORD="$(read_env_value CONNECT_LAB_POSTGRES_APP_PASSWORD)"
 DATABASE_NAME="$(read_env_value CONNECT_LAB_DATABASE_NAME)"
 
 if [[ ! "$POSTGRES_HOST_PORT" =~ ^[0-9]+$ ]] ||
@@ -39,8 +41,10 @@ if [[ ! "$POSTGRES_HOST_PORT" =~ ^[0-9]+$ ]] ||
 fi
 
 if [[ ! "$POSTGRES_USER" =~ ^[a-z0-9_]+$ ]] ||
+    [[ ! "$POSTGRES_APP_USER" =~ ^[a-z0-9_]+$ ]] ||
     [[ ! "$DATABASE_NAME" =~ ^[a-z0-9_]+$ ]] ||
-    [[ -z "$POSTGRES_PASSWORD" ]]; then
+    [[ -z "$POSTGRES_PASSWORD" ]] ||
+    [[ -z "$POSTGRES_APP_PASSWORD" ]]; then
     printf 'ERROR=POSTGRES_REPOSITORY_ENV_VALUE_INVALID\n' >&2
     exit 4
 fi
@@ -65,7 +69,11 @@ fi
     CONNECT_LAB_POSTGRES_APP_USER="$POSTGRES_USER" \
     CONNECT_LAB_POSTGRES_APP_PASSWORD="$POSTGRES_PASSWORD" \
     CONNECT_LAB_POSTGRES_APP_MAX_POOL_SIZE=16 \
+    CONNECT_LAB_B4_POSTGRES_APP_JDBC_URL="jdbc:postgresql://127.0.0.1:${POSTGRES_HOST_PORT}/${DATABASE_NAME}?sslmode=disable&ApplicationName=nexo-connect-lab-b4-test" \
+    CONNECT_LAB_B4_POSTGRES_APP_USER="$POSTGRES_APP_USER" \
+    CONNECT_LAB_B4_POSTGRES_APP_PASSWORD="$POSTGRES_APP_PASSWORD" \
         ./gradlew --no-daemon postgresIntegrationTest --console=plain
 )
 
 printf 'POSTGRES_REPOSITORY_INTEGRATION=PASS\n'
+printf 'POSTGRES_CONVERSATION_REPOSITORY_INTEGRATION=PASS\n'

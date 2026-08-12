@@ -117,8 +117,17 @@ required_files=(
     scripts/verify-postgres-repository.sh
     scripts/verify-postgres-schema.sh
     settings.gradle.kts
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/persistence/ConversationRepository.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/conversation/CreateBusinessClientConversationCommand.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/conversation/DurableConversationSnapshot.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/persistence/BusinessClientConversationKeyPersistenceRecord.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/persistence/BusinessClientConversationPersistenceBundle.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresConversationRepository.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresDatabaseLifecycle.kt
     src/main/resources/db/migration/V2__connect_application_role_grants.sql
+    src/main/resources/db/migration/V3__business_client_conversation_keys.sql
+    src/postgresIntegrationTest/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresConversationRepositoryIntegrationTest.kt
+    src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/persistence/BusinessClientConversationPersistenceBundleTest.kt
 )
 
 for required_file in "${required_files[@]}"; do
@@ -210,6 +219,21 @@ bash -n scripts/verify-postgres-schema.sh
 bash -n docker/postgres/init/001-create-connect-app-role.sh
 bash -n scripts/ci-verify.sh
 git diff --check
+
+if [[ "$(find src/main/resources/db/migration -maxdepth 1 -type f -name 'V*__*.sql' | wc -l | tr -d '[:space:]')" != "3" ]] ||
+    find src/main/resources/db/migration -maxdepth 1 -type f -name 'V4__*.sql' -print -quit | grep -q .; then
+    printf 'CI_STATIC_CONTRACT=FAIL\n' >&2
+    printf 'ERROR=CONNECT_B4_MIGRATION_SET_MISMATCH\n' >&2
+    exit 20
+fi
+
+if grep -En 'route\(|webSocket|WebSocket|/messages|/conversations' \
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/persistence/ConversationRepository.kt \
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresConversationRepository.kt; then
+    printf 'CI_STATIC_CONTRACT=FAIL\n' >&2
+    printf 'ERROR=CONNECT_B4_TRANSPORT_SCOPE_VIOLATION\n' >&2
+    exit 20
+fi
 printf 'CI_STATIC_CONTRACT=PASS\n'
 
 if [[ -e "$ENV_FILE" || -L "$ENV_FILE" ]]; then

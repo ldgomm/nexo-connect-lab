@@ -60,14 +60,19 @@ if [[ "$(query_scalar "SELECT count(*) FROM public.flyway_schema_history WHERE v
     exit 5
 fi
 
-if [[ "$(query_scalar "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'connect' AND table_name IN ('conversations','conversation_participants','messages','message_identities')")" != "4" ]]; then
-    printf 'ERROR=POSTGRES_SCHEMA_TABLE_SET_MISMATCH\n' >&2
+if [[ "$(query_scalar "SELECT count(*) FROM public.flyway_schema_history WHERE version = '3' AND success")" != "1" ]]; then
+    printf 'ERROR=FLYWAY_HISTORY_VERSION_THREE_MISSING\n' >&2
     exit 6
 fi
 
-if [[ "$(query_scalar "SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace WHERE n.nspname = 'connect' AND c.conname IN ('pk_connect_conversations','pk_connect_conversation_participants','pk_connect_messages','uq_connect_message_conversation_sequence','uq_connect_identity_idempotency','uq_connect_identity_client_message','pk_connect_message_identities','fk_connect_message_sender_participant','fk_connect_identity_message')")" != "9" ]]; then
-    printf 'ERROR=POSTGRES_SCHEMA_A4_CONSTRAINT_SET_MISMATCH\n' >&2
+if [[ "$(query_scalar "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'connect' AND table_name IN ('conversations','conversation_participants','messages','message_identities','business_client_conversation_keys')")" != "5" ]]; then
+    printf 'ERROR=POSTGRES_SCHEMA_TABLE_SET_MISMATCH\n' >&2
     exit 7
+fi
+
+if [[ "$(query_scalar "SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace WHERE n.nspname = 'connect' AND c.conname IN ('pk_connect_conversations','pk_connect_conversation_participants','pk_connect_messages','uq_connect_message_conversation_sequence','uq_connect_identity_idempotency','uq_connect_identity_client_message','pk_connect_message_identities','fk_connect_message_sender_participant','fk_connect_identity_message','uq_connect_conversation_full_scope','pk_connect_business_client_conversation_keys','uq_connect_business_client_conversation_ref','fk_connect_business_client_conversation_scope','fk_connect_business_client_business_participant','fk_connect_business_client_client_participant')")" != "15" ]]; then
+    printf 'ERROR=POSTGRES_SCHEMA_B4_CONSTRAINT_SET_MISMATCH\n' >&2
+    exit 8
 fi
 printf 'POSTGRES_SCHEMA_OBJECTS=PASS\n'
 
@@ -90,7 +95,37 @@ INSERT INTO connect.conversation_participants (
     capabilities, joined_at, left_at
 ) VALUES
     ('conversation-1', 'business-subject-1', 'BUSINESS', 'ACTIVE', ARRAY['SEND_TEXT'], '2026-08-11T20:00:00Z', NULL),
-    ('conversation-1', 'client-subject-1', 'CLIENT', 'ACTIVE', ARRAY['SEND_TEXT'], '2026-08-11T20:00:00Z', NULL);
+    ('conversation-1', 'client-subject-1', 'CLIENT', 'ACTIVE', ARRAY['SEND_TEXT'], '2026-08-11T20:00:00Z', NULL),
+    ('conversation-1', 'client-subject-2', 'CLIENT', 'ACTIVE', ARRAY['SEND_TEXT'], '2026-08-11T20:00:00Z', NULL);
+
+INSERT INTO connect.business_client_conversation_keys (
+    platform_scope_ref, organization_scope_ref, business_scope_ref,
+    business_subject_ref, business_actor_type,
+    client_subject_ref, client_actor_type,
+    conversation_ref
+) VALUES (
+    'platform-1', 'organization-1', 'business-1',
+    'business-subject-1', 'BUSINESS',
+    'client-subject-1', 'CLIENT',
+    'conversation-1'
+);
+
+INSERT INTO connect.conversations (
+    conversation_ref, conversation_type, platform_scope_ref,
+    organization_scope_ref, business_scope_ref, status,
+    created_at, last_message_sequence, version, schema_version
+) VALUES (
+    'conversation-2', 'BUSINESS_CLIENT', 'platform-1',
+    'organization-1', 'business-1', 'ACTIVE',
+    '2026-08-11T20:00:00Z', 0, 0, 1
+);
+
+INSERT INTO connect.conversation_participants (
+    conversation_ref, subject_ref, actor_type, status,
+    capabilities, joined_at, left_at
+) VALUES
+    ('conversation-2', 'business-subject-1', 'BUSINESS', 'ACTIVE', ARRAY['SEND_TEXT'], '2026-08-11T20:00:00Z', NULL),
+    ('conversation-2', 'client-subject-1', 'CLIENT', 'ACTIVE', ARRAY['SEND_TEXT'], '2026-08-11T20:00:00Z', NULL);
 
 INSERT INTO connect.messages (
     server_message_ref, conversation_ref, sequence,
@@ -119,6 +154,66 @@ INSERT INTO connect.message_identities (
 DO $probe$
 DECLARE actual_constraint text;
 BEGIN
+    BEGIN
+        INSERT INTO connect.business_client_conversation_keys (
+            platform_scope_ref, organization_scope_ref, business_scope_ref,
+            business_subject_ref, business_actor_type,
+            client_subject_ref, client_actor_type,
+            conversation_ref
+        ) VALUES (
+            'platform-1', 'organization-1', 'business-1',
+            'business-subject-1', 'BUSINESS',
+            'client-subject-1', 'CLIENT',
+            'conversation-2'
+        );
+        RAISE EXCEPTION 'duplicate direct participant pair was accepted';
+    EXCEPTION WHEN unique_violation THEN
+        GET STACKED DIAGNOSTICS actual_constraint = CONSTRAINT_NAME;
+        IF actual_constraint <> 'pk_connect_business_client_conversation_keys' THEN
+            RAISE EXCEPTION 'unexpected direct participant pair constraint: %', actual_constraint;
+        END IF;
+    END;
+
+    BEGIN
+        INSERT INTO connect.business_client_conversation_keys (
+            platform_scope_ref, organization_scope_ref, business_scope_ref,
+            business_subject_ref, business_actor_type,
+            client_subject_ref, client_actor_type,
+            conversation_ref
+        ) VALUES (
+            'platform-1', 'organization-1', 'business-1',
+            'business-subject-1', 'BUSINESS',
+            'client-subject-2', 'CLIENT',
+            'conversation-1'
+        );
+        RAISE EXCEPTION 'duplicate direct conversation ref was accepted';
+    EXCEPTION WHEN unique_violation THEN
+        GET STACKED DIAGNOSTICS actual_constraint = CONSTRAINT_NAME;
+        IF actual_constraint <> 'uq_connect_business_client_conversation_ref' THEN
+            RAISE EXCEPTION 'unexpected direct conversation ref constraint: %', actual_constraint;
+        END IF;
+    END;
+
+    BEGIN
+        INSERT INTO connect.business_client_conversation_keys (
+            platform_scope_ref, organization_scope_ref, business_scope_ref,
+            business_subject_ref, business_actor_type,
+            client_subject_ref, client_actor_type,
+            conversation_ref
+        ) VALUES (
+            'platform-1', 'organization-1', 'wrong-business',
+            'business-subject-1', 'BUSINESS',
+            'client-subject-1', 'CLIENT',
+            'conversation-2'
+        );
+        RAISE EXCEPTION 'wrong direct conversation scope was accepted';
+    EXCEPTION WHEN foreign_key_violation THEN
+        GET STACKED DIAGNOSTICS actual_constraint = CONSTRAINT_NAME;
+        IF actual_constraint <> 'fk_connect_business_client_conversation_scope' THEN
+            RAISE EXCEPTION 'unexpected direct conversation scope constraint: %', actual_constraint;
+        END IF;
+    END;
+
     BEGIN
         INSERT INTO connect.messages (
             server_message_ref, conversation_ref, sequence,
