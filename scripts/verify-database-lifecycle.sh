@@ -48,7 +48,7 @@ query_scalar() {
         -U "$MIGRATION_USER" -d "$DATABASE_NAME" -tAc "$1" | tr -d '[:space:]'
 }
 
-if [[ "$(query_scalar "SELECT count(*) FROM public.flyway_schema_history WHERE version IN ('1', '2', '3') AND success")" != "3" ]] ||
+if [[ "$(query_scalar "SELECT count(*) FROM public.flyway_schema_history WHERE version IN ('1', '2', '3', '4') AND success")" != "4" ]] ||
     ! compose logs --no-color app 2>&1 | grep -F 'CONNECT_DATABASE_POOL=READY' >/dev/null; then
     printf 'ERROR=APPLICATION_FLYWAY_VALIDATION_EVIDENCE_MISSING\n' >&2
     exit 3

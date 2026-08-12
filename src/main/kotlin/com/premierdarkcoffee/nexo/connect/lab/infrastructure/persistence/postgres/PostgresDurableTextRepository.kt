@@ -139,7 +139,12 @@ class PostgresDurableTextRepository(
         lockedConversation: ConversationPersistenceRecord,
         lockedSender: ConversationParticipantPersistenceRecord,
     ): DurableTextRepositoryResult.Committed {
-        val postWriteConversation = allocateNextSequence(connection, lockedConversation)
+        val postWriteConversation =
+            allocateNextSequence(
+                connection = connection,
+                conversation = lockedConversation,
+                acceptedAtServer = request.acceptedAtServer,
+            )
         val message =
             TextMessagePersistenceRecord(
                 serverMessageRef = request.serverMessageRef,
@@ -352,17 +357,20 @@ class PostgresDurableTextRepository(
     private fun allocateNextSequence(
         connection: Connection,
         conversation: ConversationPersistenceRecord,
+        acceptedAtServer: java.time.Instant,
     ): ConversationPersistenceRecord =
         connection.prepareStatement(
             """
             UPDATE connect.conversations
             SET last_message_sequence = last_message_sequence + 1,
+                last_activity_at = GREATEST(last_activity_at, ?),
                 version = version + 1
             WHERE conversation_ref = ?
             RETURNING last_message_sequence, version
             """.trimIndent(),
         ).use { statement ->
-            statement.setString(1, conversation.conversationRef)
+            statement.setTimestamp(1, java.sql.Timestamp.from(acceptedAtServer))
+            statement.setString(2, conversation.conversationRef)
             statement.executeQuery().use { resultSet ->
                 check(resultSet.next()) { "Locked conversation disappeared during sequence allocation" }
                 conversation.copy(

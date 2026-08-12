@@ -5,8 +5,11 @@ import com.premierdarkcoffee.nexo.connect.lab.application.conversation.Conversat
 import com.premierdarkcoffee.nexo.connect.lab.application.persistence.ConversationCreationConflictReason
 import com.premierdarkcoffee.nexo.connect.lab.application.persistence.ConversationCreationDenialReason
 import com.premierdarkcoffee.nexo.connect.lab.application.persistence.ConversationCreationResult
+import com.premierdarkcoffee.nexo.connect.lab.application.persistence.ConversationListingDenialReason
+import com.premierdarkcoffee.nexo.connect.lab.application.persistence.ConversationListingResult
 import com.premierdarkcoffee.nexo.connect.lab.application.persistence.ConversationRepository
 import com.premierdarkcoffee.nexo.connect.lab.application.persistence.CreateBusinessClientConversationRequest
+import com.premierdarkcoffee.nexo.connect.lab.application.persistence.ListConversationsRequest
 import com.premierdarkcoffee.nexo.connect.lab.application.persistence.OpenConversationRequest
 import com.premierdarkcoffee.nexo.connect.lab.application.persistence.OpenConversationResult
 import com.premierdarkcoffee.nexo.connect.lab.domain.conversation.ConversationAccessScope
@@ -16,6 +19,8 @@ import com.premierdarkcoffee.nexo.connect.lab.domain.conversation.ConversationPa
 import com.premierdarkcoffee.nexo.connect.lab.domain.conversation.ConversationParticipantStatus
 import com.premierdarkcoffee.nexo.connect.lab.domain.conversation.ConversationStatus
 import com.premierdarkcoffee.nexo.connect.lab.domain.conversation.ConversationType
+import com.premierdarkcoffee.nexo.connect.lab.domain.conversation.DurableConversationListEntry
+import com.premierdarkcoffee.nexo.connect.lab.domain.conversation.DurableConversationListPage
 import com.premierdarkcoffee.nexo.connect.lab.domain.conversation.DurableConversationSnapshot
 import com.premierdarkcoffee.nexo.connect.lab.domain.identity.ConnectActorType
 import com.premierdarkcoffee.nexo.connect.lab.domain.identity.ConnectPrincipal
@@ -106,6 +111,137 @@ class PostgresConversationRepository(
                 throw failure
             }
         }
+
+    override fun listForParticipant(request: ListConversationsRequest): ConversationListingResult {
+        if (request.principal.actorType !in LISTABLE_ACTOR_TYPES) {
+            return ConversationListingResult.Denied(
+                ConversationListingDenialReason.PRINCIPAL_TYPE_NOT_SUPPORTED,
+            )
+        }
+
+        return dataSource.connection.use { connection ->
+            connection.autoCommit = false
+            connection.transactionIsolation = Connection.TRANSACTION_REPEATABLE_READ
+            connection.isReadOnly = true
+
+            try {
+                val page = listWithinTransaction(connection, request)
+                connection.commit()
+                ConversationListingResult.Listed(page)
+            } catch (failure: Throwable) {
+                connection.rollbackPreserving(failure)
+                throw failure
+            }
+        }
+    }
+
+    private fun listWithinTransaction(
+        connection: Connection,
+        request: ListConversationsRequest,
+    ): DurableConversationListPage {
+        val listedRecords = loadListedConversationRecords(connection, request)
+        val hasMore = listedRecords.size > request.pageSize
+        val visibleRecords = listedRecords.take(request.pageSize)
+        val participantsByConversation =
+            loadParticipantsByConversationRefs(
+                connection = connection,
+                conversationRefs = visibleRecords.map { it.conversation.conversationRef },
+            )
+        val items =
+            visibleRecords.map { listed ->
+                val participants =
+                    checkNotNull(participantsByConversation[listed.conversation.conversationRef]) {
+                        "Listed conversation has no durable participants"
+                    }
+                DurableConversationListEntry(
+                    conversation = listed.conversation.toSnapshot(participants),
+                    lastActivityAt = listed.lastActivityAt,
+                )
+            }
+
+        return DurableConversationListPage(
+            items = items,
+            nextCursor = if (hasMore) items.last().cursor() else null,
+        )
+    }
+
+    private fun loadListedConversationRecords(
+        connection: Connection,
+        request: ListConversationsRequest,
+    ): List<ListedConversationRecord> {
+        val principal = request.principal
+        val businessScopePredicate =
+            if (principal.actorType == ConnectActorType.BUSINESS) {
+                "AND conversation.organization_scope_ref = ? AND conversation.business_scope_ref = ?"
+            } else {
+                ""
+            }
+        val cursorPredicate =
+            if (request.cursor != null) {
+                """
+                AND (
+                    conversation.last_activity_at < ?
+                    OR (
+                        conversation.last_activity_at = ?
+                        AND conversation.conversation_ref COLLATE "C" < ? COLLATE "C"
+                    )
+                )
+                """.trimIndent()
+            } else {
+                ""
+            }
+
+        val sql =
+            """
+            SELECT conversation.conversation_ref, conversation.conversation_type,
+                   conversation.platform_scope_ref, conversation.organization_scope_ref,
+                   conversation.business_scope_ref, conversation.status,
+                   conversation.created_at, conversation.last_activity_at,
+                   conversation.last_message_sequence, conversation.version,
+                   conversation.schema_version
+            FROM connect.conversations AS conversation
+            INNER JOIN connect.conversation_participants AS viewer
+                    ON viewer.conversation_ref = conversation.conversation_ref
+                   AND viewer.subject_ref = ?
+                   AND viewer.actor_type = ?
+            WHERE conversation.platform_scope_ref = ?
+              $businessScopePredicate
+              $cursorPredicate
+            ORDER BY conversation.last_activity_at DESC,
+                     conversation.conversation_ref COLLATE "C" DESC
+            LIMIT ?
+            """.trimIndent()
+
+        return connection.prepareStatement(sql).use { statement ->
+            var parameter = 1
+            statement.setString(parameter++, principal.subjectRef)
+            statement.setString(parameter++, principal.actorType.name)
+            statement.setString(parameter++, principal.platformScopeRef)
+            if (principal.actorType == ConnectActorType.BUSINESS) {
+                statement.setString(parameter++, checkNotNull(principal.organizationScopeRef))
+                statement.setString(parameter++, checkNotNull(principal.businessScopeRef))
+            }
+            request.cursor?.let { cursor ->
+                statement.setTimestamp(parameter++, Timestamp.from(cursor.lastActivityAt))
+                statement.setTimestamp(parameter++, Timestamp.from(cursor.lastActivityAt))
+                statement.setString(parameter++, cursor.conversationRef)
+            }
+            statement.setInt(parameter, request.pageSize + 1)
+
+            statement.executeQuery().use { resultSet ->
+                buildList {
+                    while (resultSet.next()) {
+                        add(
+                            ListedConversationRecord(
+                                conversation = resultSet.toConversationRecord(),
+                                lastActivityAt = resultSet.getTimestamp("last_activity_at").toInstant(),
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+    }
 
     private fun createWithinTransaction(
         connection: Connection,
@@ -256,8 +392,8 @@ class PostgresConversationRepository(
             INSERT INTO connect.conversations (
                 conversation_ref, conversation_type, platform_scope_ref,
                 organization_scope_ref, business_scope_ref, status,
-                created_at, last_message_sequence, version, schema_version
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                created_at, last_activity_at, last_message_sequence, version, schema_version
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """.trimIndent(),
         ).use { statement ->
             statement.setString(1, conversation.conversationRef)
@@ -267,9 +403,10 @@ class PostgresConversationRepository(
             statement.setString(5, conversation.businessScopeRef)
             statement.setString(6, conversation.status.name)
             statement.setTimestamp(7, Timestamp.from(conversation.createdAt))
-            statement.setLong(8, conversation.lastMessageSequence.value)
-            statement.setLong(9, conversation.version)
-            statement.setInt(10, conversation.schemaVersion)
+            statement.setTimestamp(8, Timestamp.from(conversation.createdAt))
+            statement.setLong(9, conversation.lastMessageSequence.value)
+            statement.setLong(10, conversation.version)
+            statement.setInt(11, conversation.schemaVersion)
             check(statement.executeUpdate() == 1) { "Conversation insert did not affect exactly one row" }
         }
     }
@@ -352,21 +489,26 @@ class PostgresConversationRepository(
                 }
             } ?: return null
 
-        val participants = loadParticipants(connection, conversationRef)
-        return DurableConversationSnapshot(
+        return conversation.toSnapshot(loadParticipants(connection, conversationRef))
+    }
+
+    private fun ConversationPersistenceRecord.toSnapshot(
+        participants: List<ConversationParticipantPersistenceRecord>,
+    ): DurableConversationSnapshot =
+        DurableConversationSnapshot(
             scope =
                 ConversationAccessScope(
-                    conversationRef = conversation.conversationRef,
-                    type = conversation.type,
-                    platformScopeRef = conversation.platformScopeRef,
-                    organizationScopeRef = conversation.organizationScopeRef,
-                    businessScopeRef = conversation.businessScopeRef,
+                    conversationRef = conversationRef,
+                    type = type,
+                    platformScopeRef = platformScopeRef,
+                    organizationScopeRef = organizationScopeRef,
+                    businessScopeRef = businessScopeRef,
                     participants =
                         participants.mapTo(linkedSetOf()) {
                             ConversationParticipant(it.subjectRef, it.actorType)
                         },
                 ),
-            status = conversation.status,
+            status = status,
             participantStates =
                 participants.mapTo(linkedSetOf()) {
                     ConversationParticipantCommandState(
@@ -376,10 +518,9 @@ class PostgresConversationRepository(
                         capabilities = it.capabilities,
                     )
                 },
-            createdAt = conversation.createdAt,
-            lastMessageSequence = conversation.lastMessageSequence,
+            createdAt = createdAt,
+            lastMessageSequence = lastMessageSequence,
         )
-    }
 
     private fun loadParticipants(
         connection: Connection,
@@ -401,6 +542,35 @@ class PostgresConversationRepository(
                 }
             }
         }
+
+    private fun loadParticipantsByConversationRefs(
+        connection: Connection,
+        conversationRefs: List<String>,
+    ): Map<String, List<ConversationParticipantPersistenceRecord>> {
+        if (conversationRefs.isEmpty()) return emptyMap()
+
+        val sqlArray = connection.createArrayOf("text", conversationRefs.toTypedArray())
+        return try {
+            connection.prepareStatement(
+                """
+                SELECT conversation_ref, subject_ref, actor_type, status,
+                       capabilities, joined_at, left_at
+                FROM connect.conversation_participants
+                WHERE conversation_ref = ANY (?)
+                ORDER BY conversation_ref, actor_type, subject_ref
+                """.trimIndent(),
+            ).use { statement ->
+                statement.setArray(1, sqlArray)
+                statement.executeQuery().use { resultSet ->
+                    buildList {
+                        while (resultSet.next()) add(resultSet.toParticipantRecord())
+                    }.groupBy(ConversationParticipantPersistenceRecord::conversationRef)
+                }
+            }
+        } finally {
+            sqlArray.free()
+        }
+    }
 
     private fun newParticipant(
         directKey: BusinessClientConversationKeyPersistenceRecord,
@@ -474,5 +644,14 @@ class PostgresConversationRepository(
         } catch (rollbackFailure: SQLException) {
             failure.addSuppressed(rollbackFailure)
         }
+    }
+
+    private data class ListedConversationRecord(
+        val conversation: ConversationPersistenceRecord,
+        val lastActivityAt: Instant,
+    )
+
+    private companion object {
+        val LISTABLE_ACTOR_TYPES = setOf(ConnectActorType.BUSINESS, ConnectActorType.CLIENT)
     }
 }

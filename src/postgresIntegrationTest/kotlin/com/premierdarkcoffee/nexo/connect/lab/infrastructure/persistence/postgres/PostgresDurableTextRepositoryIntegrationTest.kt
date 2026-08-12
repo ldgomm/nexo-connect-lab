@@ -279,13 +279,14 @@ class PostgresDurableTextRepositoryIntegrationTest {
                     INSERT INTO connect.conversations (
                         conversation_ref, conversation_type, platform_scope_ref,
                         organization_scope_ref, business_scope_ref, status,
-                        created_at, last_message_sequence, version, schema_version
+                        created_at, last_activity_at, last_message_sequence, version, schema_version
                     ) VALUES (?, 'BUSINESS_CLIENT', 'platform-1', 'organization-1',
-                              'business-1', 'ACTIVE', ?, 0, 0, 1)
+                              'business-1', 'ACTIVE', ?, ?, 0, 0, 1)
                     """.trimIndent(),
                 ).use { statement ->
                     statement.setString(1, conversationRef)
                     statement.setTimestamp(2, Timestamp.from(BASE_TIME))
+                    statement.setTimestamp(3, Timestamp.from(BASE_TIME))
                     statement.executeUpdate()
                 }
 

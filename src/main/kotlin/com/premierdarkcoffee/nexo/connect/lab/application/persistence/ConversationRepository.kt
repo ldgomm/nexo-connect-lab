@@ -1,6 +1,8 @@
 package com.premierdarkcoffee.nexo.connect.lab.application.persistence
 
 import com.premierdarkcoffee.nexo.connect.lab.domain.conversation.CreateBusinessClientConversationCommand
+import com.premierdarkcoffee.nexo.connect.lab.domain.conversation.ConversationListCursor
+import com.premierdarkcoffee.nexo.connect.lab.domain.conversation.DurableConversationListPage
 import com.premierdarkcoffee.nexo.connect.lab.domain.conversation.DurableConversationSnapshot
 import com.premierdarkcoffee.nexo.connect.lab.domain.identity.ConnectPrincipal
 
@@ -59,10 +61,44 @@ sealed interface OpenConversationResult {
     data object NotFoundOrDenied : OpenConversationResult
 }
 
+data class ListConversationsRequest(
+    val principal: ConnectPrincipal,
+    val pageSize: Int = DEFAULT_PAGE_SIZE,
+    val cursor: ConversationListCursor? = null,
+) {
+    init {
+        require(pageSize in 1..MAX_PAGE_SIZE) {
+            "pageSize must be between 1 and $MAX_PAGE_SIZE"
+        }
+    }
+
+    companion object {
+        const val DEFAULT_PAGE_SIZE = 50
+        const val MAX_PAGE_SIZE = 100
+    }
+}
+
+enum class ConversationListingDenialReason {
+    PRINCIPAL_TYPE_NOT_SUPPORTED,
+}
+
+sealed interface ConversationListingResult {
+    data class Listed(
+        val page: DurableConversationListPage,
+    ) : ConversationListingResult
+
+    data class Denied(
+        val reason: ConversationListingDenialReason,
+    ) : ConversationListingResult
+}
+
 interface ConversationRepository {
     /** Creates one durable business-client conversation per scoped participant pair. */
     fun create(request: CreateBusinessClientConversationRequest): ConversationCreationResult
 
     /** Does not reveal whether a conversation is absent or merely outside the principal's scope. */
     fun open(request: OpenConversationRequest): OpenConversationResult
+
+    /** Lists only explicit participant conversations using an exclusive durable keyset cursor. */
+    fun listForParticipant(request: ListConversationsRequest): ConversationListingResult
 }

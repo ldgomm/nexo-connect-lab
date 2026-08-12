@@ -65,13 +65,25 @@ if [[ "$(query_scalar "SELECT count(*) FROM public.flyway_schema_history WHERE v
     exit 6
 fi
 
+if [[ "$(query_scalar "SELECT count(*) FROM public.flyway_schema_history WHERE version = '4' AND success")" != "1" ]]; then
+    printf 'ERROR=FLYWAY_HISTORY_VERSION_FOUR_MISSING\n' >&2
+    exit 6
+fi
+
 if [[ "$(query_scalar "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'connect' AND table_name IN ('conversations','conversation_participants','messages','message_identities','business_client_conversation_keys')")" != "5" ]]; then
     printf 'ERROR=POSTGRES_SCHEMA_TABLE_SET_MISMATCH\n' >&2
     exit 7
 fi
 
-if [[ "$(query_scalar "SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace WHERE n.nspname = 'connect' AND c.conname IN ('pk_connect_conversations','pk_connect_conversation_participants','pk_connect_messages','uq_connect_message_conversation_sequence','uq_connect_identity_idempotency','uq_connect_identity_client_message','pk_connect_message_identities','fk_connect_message_sender_participant','fk_connect_identity_message','uq_connect_conversation_full_scope','pk_connect_business_client_conversation_keys','uq_connect_business_client_conversation_ref','fk_connect_business_client_conversation_scope','fk_connect_business_client_business_participant','fk_connect_business_client_client_participant')")" != "15" ]]; then
-    printf 'ERROR=POSTGRES_SCHEMA_B4_CONSTRAINT_SET_MISMATCH\n' >&2
+if [[ "$(query_scalar "SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace WHERE n.nspname = 'connect' AND c.conname IN ('pk_connect_conversations','pk_connect_conversation_participants','pk_connect_messages','uq_connect_message_conversation_sequence','uq_connect_identity_idempotency','uq_connect_identity_client_message','pk_connect_message_identities','fk_connect_message_sender_participant','fk_connect_identity_message','uq_connect_conversation_full_scope','pk_connect_business_client_conversation_keys','uq_connect_business_client_conversation_ref','fk_connect_business_client_conversation_scope','fk_connect_business_client_business_participant','fk_connect_business_client_client_participant','ck_connect_conversation_activity_time')")" != "16" ]]; then
+    printf 'ERROR=POSTGRES_SCHEMA_B5_CONSTRAINT_SET_MISMATCH\n' >&2
+    exit 8
+fi
+
+if [[ "$(query_scalar "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'connect' AND table_name = 'conversations' AND column_name = 'last_activity_at' AND is_nullable = 'NO' AND data_type = 'timestamp with time zone'")" != "1" ]] ||
+    [[ "$(query_scalar "SELECT count(*) FROM pg_indexes WHERE schemaname = 'connect' AND indexname IN ('ix_connect_conversation_activity_listing','ix_connect_participant_listing')")" != "2" ]] ||
+    [[ "$(query_scalar "SELECT count(*) FROM pg_indexes WHERE schemaname = 'connect' AND indexname = 'ix_connect_conversation_activity_listing' AND indexdef LIKE '%COLLATE \"C\" DESC%'")" != "1" ]]; then
+    printf 'ERROR=POSTGRES_SCHEMA_B5_LISTING_INDEX_SET_MISMATCH\n' >&2
     exit 8
 fi
 printf 'POSTGRES_SCHEMA_OBJECTS=PASS\n'
@@ -83,11 +95,11 @@ BEGIN;
 INSERT INTO connect.conversations (
     conversation_ref, conversation_type, platform_scope_ref,
     organization_scope_ref, business_scope_ref, status,
-    created_at, last_message_sequence, version, schema_version
+    created_at, last_activity_at, last_message_sequence, version, schema_version
 ) VALUES (
     'conversation-1', 'BUSINESS_CLIENT', 'platform-1',
     'organization-1', 'business-1', 'ACTIVE',
-    '2026-08-11T20:00:00Z', 2, 2, 1
+    '2026-08-11T20:00:00Z', '2026-08-11T20:00:02Z', 2, 2, 1
 );
 
 INSERT INTO connect.conversation_participants (
@@ -113,11 +125,11 @@ INSERT INTO connect.business_client_conversation_keys (
 INSERT INTO connect.conversations (
     conversation_ref, conversation_type, platform_scope_ref,
     organization_scope_ref, business_scope_ref, status,
-    created_at, last_message_sequence, version, schema_version
+    created_at, last_activity_at, last_message_sequence, version, schema_version
 ) VALUES (
     'conversation-2', 'BUSINESS_CLIENT', 'platform-1',
     'organization-1', 'business-1', 'ACTIVE',
-    '2026-08-11T20:00:00Z', 0, 0, 1
+    '2026-08-11T20:00:00Z', '2026-08-11T20:00:00Z', 0, 0, 1
 );
 
 INSERT INTO connect.conversation_participants (
@@ -325,14 +337,26 @@ BEGIN
     END;
 
     BEGIN
+        UPDATE connect.conversations
+        SET last_activity_at = created_at - INTERVAL '1 second'
+        WHERE conversation_ref = 'conversation-1';
+        RAISE EXCEPTION 'activity before creation was accepted';
+    EXCEPTION WHEN check_violation THEN
+        GET STACKED DIAGNOSTICS actual_constraint = CONSTRAINT_NAME;
+        IF actual_constraint <> 'ck_connect_conversation_activity_time' THEN
+            RAISE EXCEPTION 'unexpected activity time constraint: %', actual_constraint;
+        END IF;
+    END;
+
+    BEGIN
         INSERT INTO connect.conversations (
             conversation_ref, conversation_type, platform_scope_ref,
             organization_scope_ref, business_scope_ref, status,
-            created_at, last_message_sequence, version, schema_version
+            created_at, last_activity_at, last_message_sequence, version, schema_version
         ) VALUES (
             repeat('é', 129), 'BUSINESS_CLIENT', 'platform-limit',
             'organization-limit', 'business-limit', 'ACTIVE',
-            '2026-08-11T20:00:00Z', 0, 0, 1
+            '2026-08-11T20:00:00Z', '2026-08-11T20:00:00Z', 0, 0, 1
         );
         RAISE EXCEPTION 'oversized UTF-8 reference was accepted';
     EXCEPTION WHEN check_violation THEN

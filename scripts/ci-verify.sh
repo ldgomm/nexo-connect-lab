@@ -118,6 +118,7 @@ required_files=(
     scripts/verify-postgres-schema.sh
     settings.gradle.kts
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/persistence/ConversationRepository.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/conversation/DurableConversationListing.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/conversation/CreateBusinessClientConversationCommand.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/conversation/DurableConversationSnapshot.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/persistence/BusinessClientConversationKeyPersistenceRecord.kt
@@ -126,8 +127,11 @@ required_files=(
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresDatabaseLifecycle.kt
     src/main/resources/db/migration/V2__connect_application_role_grants.sql
     src/main/resources/db/migration/V3__business_client_conversation_keys.sql
+    src/main/resources/db/migration/V4__durable_conversation_activity_listing.sql
     src/postgresIntegrationTest/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresConversationRepositoryIntegrationTest.kt
+    src/postgresIntegrationTest/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresConversationListingIntegrationTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/persistence/BusinessClientConversationPersistenceBundleTest.kt
+    src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/conversation/DurableConversationListingTest.kt
 )
 
 for required_file in "${required_files[@]}"; do
@@ -220,18 +224,34 @@ bash -n docker/postgres/init/001-create-connect-app-role.sh
 bash -n scripts/ci-verify.sh
 git diff --check
 
-if [[ "$(find src/main/resources/db/migration -maxdepth 1 -type f -name 'V*__*.sql' | wc -l | tr -d '[:space:]')" != "3" ]] ||
-    find src/main/resources/db/migration -maxdepth 1 -type f -name 'V4__*.sql' -print -quit | grep -q .; then
+if [[ "$(find src/main/resources/db/migration -maxdepth 1 -type f -name 'V*__*.sql' | wc -l | tr -d '[:space:]')" != "4" ]] ||
+    find src/main/resources/db/migration -maxdepth 1 -type f -name 'V5__*.sql' -print -quit | grep -q .; then
     printf 'CI_STATIC_CONTRACT=FAIL\n' >&2
-    printf 'ERROR=CONNECT_B4_MIGRATION_SET_MISMATCH\n' >&2
+    printf 'ERROR=CONNECT_B5_MIGRATION_SET_MISMATCH\n' >&2
     exit 20
 fi
 
 if grep -En 'route\(|webSocket|WebSocket|/messages|/conversations' \
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/persistence/ConversationRepository.kt \
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/conversation/DurableConversationListing.kt \
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresConversationRepository.kt; then
     printf 'CI_STATIC_CONTRACT=FAIL\n' >&2
-    printf 'ERROR=CONNECT_B4_TRANSPORT_SCOPE_VIOLATION\n' >&2
+    printf 'ERROR=CONNECT_B5_TRANSPORT_SCOPE_VIOLATION\n' >&2
+    exit 20
+fi
+
+if grep -En 'OFFSET|SELECT[[:space:]].*body|message\.body' \
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresConversationRepository.kt ||
+    ! grep -Fq 'last_activity_at = GREATEST(last_activity_at, ?)' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresDurableTextRepository.kt ||
+    ! grep -Fq 'conversation.conversation_ref COLLATE "C" < ? COLLATE "C"' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresConversationRepository.kt ||
+    ! grep -Fq 'request.pageSize + 1' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresConversationRepository.kt ||
+    ! grep -Fq 'PRINCIPAL_TYPE_NOT_SUPPORTED' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/persistence/ConversationRepository.kt; then
+    printf 'CI_STATIC_CONTRACT=FAIL\n' >&2
+    printf 'ERROR=CONNECT_B5_LISTING_CONTRACT_MISMATCH\n' >&2
     exit 20
 fi
 printf 'CI_STATIC_CONTRACT=PASS\n'
