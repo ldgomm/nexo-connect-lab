@@ -5,12 +5,15 @@ import com.premierdarkcoffee.nexo.connect.lab.backend.realtime.REALTIME_AUTH_PRO
 import com.premierdarkcoffee.nexo.connect.lab.backend.realtime.authenticatedRealtimeRuntime
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.AuthorizeConversationSubscriptionRequest
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.ConversationSubscriptionAuthorizationResult
+import com.premierdarkcoffee.nexo.connect.lab.application.realtime.MessageCreatedEventSink
+import com.premierdarkcoffee.nexo.connect.lab.application.realtime.RealtimeConnectionRegistration
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.AuthenticatedRealtimeSubject
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.ClientRealtimeFrame
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.ClientRealtimeFrameType
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.ClientRealtimeFrameValidation
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.RealtimeProtocol
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.RealtimeProtocolError
+import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.RealtimeMessageCreatedPayload
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.ServerRealtimeFrame
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.ServerRealtimeFrameType
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.validateEnvelope
@@ -42,69 +45,101 @@ fun Route.authenticatedRealtimeRoutes(application: Application) {
                 return@webSocket
             }
 
-            sendServerFrame(
-                runtime,
-                ServerRealtimeFrame(
-                    type = ServerRealtimeFrameType.AUTH_OK,
-                    eventId = runtime.eventIdFactory(),
-                    serverTimestamp = runtime.clock.instant().toString(),
-                    subject =
-                        AuthenticatedRealtimeSubject(
-                            subjectRef = authenticated.connectPrincipal.subjectRef,
-                            actorType = authenticated.connectPrincipal.actorType.name,
-                        ),
-                ),
-            )
+            val registration =
+                runtime.conversationEventHub.register(
+                    principal = authenticated.connectPrincipal,
+                    sink =
+                        MessageCreatedEventSink { event ->
+                            sendServerFrame(
+                                runtime,
+                                ServerRealtimeFrame(
+                                    type = ServerRealtimeFrameType.MESSAGE_CREATED,
+                                    eventId = runtime.eventIdFactory(),
+                                    serverTimestamp = runtime.clock.instant().toString(),
+                                    conversationRef = event.conversationRef,
+                                    message =
+                                        RealtimeMessageCreatedPayload(
+                                            serverMessageRef = event.serverMessageRef,
+                                            sequence = event.sequence.value,
+                                            senderSubjectRef = event.senderSubjectRef,
+                                            senderActorType = event.senderActorType.name,
+                                            messageType = "TEXT",
+                                            body = event.body.value,
+                                            acceptedAtServer = event.acceptedAtServer.toString(),
+                                        ),
+                                ),
+                            )
+                        },
+                )
 
-            val subscribedConversationRefs = linkedSetOf<String>()
-            for (frame in incoming) {
-                when (frame) {
-                    is Frame.Text -> {
-                        val text = frame.readText()
-                        if (text.toByteArray(Charsets.UTF_8).size > RealtimeProtocol.MAX_TEXT_FRAME_BYTES) {
-                            closeWithError(runtime, "FRAME_TOO_LARGE", CloseReason.Codes.TOO_BIG)
+            try {
+                sendServerFrame(
+                    runtime,
+                    ServerRealtimeFrame(
+                        type = ServerRealtimeFrameType.AUTH_OK,
+                        eventId = runtime.eventIdFactory(),
+                        serverTimestamp = runtime.clock.instant().toString(),
+                        subject =
+                            AuthenticatedRealtimeSubject(
+                                subjectRef = authenticated.connectPrincipal.subjectRef,
+                                actorType = authenticated.connectPrincipal.actorType.name,
+                            ),
+                    ),
+                )
+
+                val subscribedConversationRefs = linkedSetOf<String>()
+                for (frame in incoming) {
+                    when (frame) {
+                        is Frame.Text -> {
+                            val text = frame.readText()
+                            if (text.toByteArray(Charsets.UTF_8).size > RealtimeProtocol.MAX_TEXT_FRAME_BYTES) {
+                                closeWithError(runtime, "FRAME_TOO_LARGE", CloseReason.Codes.TOO_BIG)
+                                break
+                            }
+
+                            val clientFrame =
+                                try {
+                                    runtime.json.decodeFromString<ClientRealtimeFrame>(text)
+                                } catch (_: SerializationException) {
+                                    closeWithError(runtime, "INVALID_JSON_FRAME", CloseReason.Codes.NOT_CONSISTENT)
+                                    break
+                                } catch (_: IllegalArgumentException) {
+                                    closeWithError(runtime, "INVALID_JSON_FRAME", CloseReason.Codes.NOT_CONSISTENT)
+                                    break
+                                }
+
+                            when (val validation = clientFrame.validateEnvelope()) {
+                                ClientRealtimeFrameValidation.Valid ->
+                                    handleClientFrame(
+                                        runtime = runtime,
+                                        authenticated = authenticated,
+                                        registration = registration,
+                                        subscribedConversationRefs = subscribedConversationRefs,
+                                        frame = clientFrame,
+                                    )
+                                is ClientRealtimeFrameValidation.Invalid -> {
+                                    val closeCode =
+                                        if (validation.code == "INCOMPATIBLE_PROTOCOL_MAJOR") {
+                                            CloseReason.Codes.PROTOCOL_ERROR
+                                        } else {
+                                            CloseReason.Codes.VIOLATED_POLICY
+                                        }
+                                    closeWithError(runtime, validation.code, closeCode, clientFrame.correlationId)
+                                    break
+                                }
+                            }
+                        }
+
+                        is Frame.Binary -> {
+                            closeWithError(runtime, "BINARY_FRAMES_UNSUPPORTED", CloseReason.Codes.CANNOT_ACCEPT)
                             break
                         }
 
-                        val clientFrame =
-                            try {
-                                runtime.json.decodeFromString<ClientRealtimeFrame>(text)
-                            } catch (_: SerializationException) {
-                                closeWithError(runtime, "INVALID_JSON_FRAME", CloseReason.Codes.NOT_CONSISTENT)
-                                break
-                            } catch (_: IllegalArgumentException) {
-                                closeWithError(runtime, "INVALID_JSON_FRAME", CloseReason.Codes.NOT_CONSISTENT)
-                                break
-                            }
-
-                        when (val validation = clientFrame.validateEnvelope()) {
-                            ClientRealtimeFrameValidation.Valid ->
-                                handleClientFrame(
-                                    runtime = runtime,
-                                    authenticated = authenticated,
-                                    subscribedConversationRefs = subscribedConversationRefs,
-                                    frame = clientFrame,
-                                )
-                            is ClientRealtimeFrameValidation.Invalid -> {
-                                val closeCode =
-                                    if (validation.code == "INCOMPATIBLE_PROTOCOL_MAJOR") {
-                                        CloseReason.Codes.PROTOCOL_ERROR
-                                    } else {
-                                        CloseReason.Codes.VIOLATED_POLICY
-                                    }
-                                closeWithError(runtime, validation.code, closeCode, clientFrame.correlationId)
-                                break
-                            }
-                        }
+                        else -> Unit
                     }
-
-                    is Frame.Binary -> {
-                        closeWithError(runtime, "BINARY_FRAMES_UNSUPPORTED", CloseReason.Codes.CANNOT_ACCEPT)
-                        break
-                    }
-
-                    else -> Unit
                 }
+            } finally {
+                runtime.conversationEventHub.unregister(registration)
             }
         }
     }
@@ -113,6 +148,7 @@ fun Route.authenticatedRealtimeRoutes(application: Application) {
 private suspend fun DefaultWebSocketServerSession.handleClientFrame(
     runtime: com.premierdarkcoffee.nexo.connect.lab.backend.realtime.AuthenticatedRealtimeRuntime,
     authenticated: AuthenticatedConnectPrincipal,
+    registration: RealtimeConnectionRegistration,
     subscribedConversationRefs: MutableSet<String>,
     frame: ClientRealtimeFrame,
 ) {
@@ -135,6 +171,7 @@ private suspend fun DefaultWebSocketServerSession.handleClientFrame(
             subscribeConversation(
                 runtime = runtime,
                 authenticated = authenticated,
+                registration = registration,
                 subscribedConversationRefs = subscribedConversationRefs,
                 frame = frame,
             )
@@ -147,6 +184,7 @@ private suspend fun DefaultWebSocketServerSession.handleClientFrame(
 private suspend fun DefaultWebSocketServerSession.subscribeConversation(
     runtime: com.premierdarkcoffee.nexo.connect.lab.backend.realtime.AuthenticatedRealtimeRuntime,
     authenticated: AuthenticatedConnectPrincipal,
+    registration: RealtimeConnectionRegistration,
     subscribedConversationRefs: MutableSet<String>,
     frame: ClientRealtimeFrame,
 ) {
@@ -178,6 +216,7 @@ private suspend fun DefaultWebSocketServerSession.subscribeConversation(
             }
 
             subscribedConversationRefs += conversationRef
+            runtime.conversationEventHub.subscribe(registration, conversationRef)
             sendServerFrame(
                 runtime,
                 ServerRealtimeFrame(

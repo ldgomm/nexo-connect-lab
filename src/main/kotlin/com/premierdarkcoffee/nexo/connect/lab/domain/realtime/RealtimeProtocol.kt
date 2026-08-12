@@ -22,6 +22,7 @@ object ServerRealtimeFrameType {
     const val ERROR = "ERROR"
     const val PONG = "PONG"
     const val CONVERSATION_SUBSCRIBED = "CONVERSATION_SUBSCRIBED"
+    const val MESSAGE_CREATED = "MESSAGE_CREATED"
 }
 
 @Serializable
@@ -46,6 +47,17 @@ data class RealtimeProtocolError(
 )
 
 @Serializable
+data class RealtimeMessageCreatedPayload(
+    val serverMessageRef: String,
+    val sequence: Long,
+    val senderSubjectRef: String,
+    val senderActorType: String,
+    val messageType: String,
+    val body: String,
+    val acceptedAtServer: String,
+)
+
+@Serializable
 data class ServerRealtimeFrame(
     val protocolMajor: Int = RealtimeProtocol.MAJOR_VERSION,
     val type: String,
@@ -56,6 +68,7 @@ data class ServerRealtimeFrame(
     val error: RealtimeProtocolError? = null,
     val conversationRef: String? = null,
     val lastMessageSequence: Long? = null,
+    val message: RealtimeMessageCreatedPayload? = null,
 )
 
 sealed interface ClientRealtimeFrameValidation {

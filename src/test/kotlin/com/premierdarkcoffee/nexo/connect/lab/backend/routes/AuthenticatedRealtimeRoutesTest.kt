@@ -2,10 +2,13 @@ package com.premierdarkcoffee.nexo.connect.lab.backend.routes
 
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.ConversationSubscriptionAuthorizationResult
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.ConversationSubscriptionAuthorizer
+import com.premierdarkcoffee.nexo.connect.lab.application.persistence.DurableTextRepository
+import com.premierdarkcoffee.nexo.connect.lab.application.persistence.DurableTextRepositoryResult
 import com.premierdarkcoffee.nexo.connect.lab.backend.realtime.REALTIME_AUTH_PROVIDER
 import com.premierdarkcoffee.nexo.connect.lab.backend.realtime.installAuthenticatedRealtimeTransport
 import com.premierdarkcoffee.nexo.connect.lab.domain.identity.ConnectActorType
 import com.premierdarkcoffee.nexo.connect.lab.domain.identity.ConnectPrincipal
+import com.premierdarkcoffee.nexo.connect.lab.domain.message.ConversationSequence
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.ClientRealtimeFrame
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.ClientRealtimeFrameType
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.ServerRealtimeFrame
@@ -16,7 +19,10 @@ import io.ktor.client.plugins.websocket.DefaultClientWebSocketSession
 import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.get
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
 import io.ktor.client.request.url
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.auth.authenticate
 import io.ktor.server.routing.get
@@ -29,6 +35,9 @@ import io.ktor.websocket.send
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.coroutines.withTimeoutOrNull
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
@@ -340,8 +349,75 @@ class AuthenticatedRealtimeRoutesTest {
         }
     }
 
+    @Test
+    fun `commits a message then publishes once to an authorized subscribed socket`() =
+        testApplication {
+            var repositoryCalls = 0
+            configureRealtime(
+                conversationSubscriptionAuthorizer =
+                    ConversationSubscriptionAuthorizer { request ->
+                        ConversationSubscriptionAuthorizationResult.Authorized(request.conversationRef, 0)
+                    },
+                durableTextRepository =
+                    DurableTextRepository {
+                        repositoryCalls += 1
+                        if (repositoryCalls == 1) {
+                            DurableTextRepositoryResult.Committed(
+                                "server-message-fixed",
+                                ConversationSequence(1),
+                            )
+                        } else {
+                            DurableTextRepositoryResult.ReplayExisting(
+                                "server-message-fixed",
+                                ConversationSequence(1),
+                            )
+                        }
+                    },
+            )
+            val realtimeClient = createClient { install(WebSockets) }
+
+            realtimeClient.webSocket(
+                request = {
+                    url("/v1/realtime")
+                    bearerAuth(BUSINESS_TOKEN)
+                },
+            ) {
+                receiveServerFrame()
+                sendSubscription("conversation-1", "c3-subscribe")
+                assertEquals(ServerRealtimeFrameType.CONVERSATION_SUBSCRIBED, receiveServerFrame().type)
+
+                val committed = client.postMessageCommand()
+                assertEquals(HttpStatusCode.Created, committed.status)
+                val committedBody = protocolJson.parseToJsonElement(committed.bodyAsText()).jsonObject
+                assertEquals("COMMITTED", committedBody.getValue("status").jsonPrimitive.content)
+                assertEquals(
+                    "server-message-fixed",
+                    committedBody.getValue("serverMessageRef").jsonPrimitive.content,
+                )
+                assertEquals("1", committedBody.getValue("sequence").jsonPrimitive.content)
+
+                val event = receiveServerFrame()
+                assertEquals(ServerRealtimeFrameType.MESSAGE_CREATED, event.type)
+                assertEquals("conversation-1", event.conversationRef)
+                assertEquals("server-message-fixed", event.message?.serverMessageRef)
+                assertEquals(1L, event.message?.sequence)
+                assertEquals("synthetic-business", event.message?.senderSubjectRef)
+                assertEquals("BUSINESS", event.message?.senderActorType)
+                assertEquals("TEXT", event.message?.messageType)
+                assertEquals("hello durable world", event.message?.body)
+
+                val replay = client.postMessageCommand()
+                assertEquals(HttpStatusCode.OK, replay.status)
+                val replayBody = protocolJson.parseToJsonElement(replay.bodyAsText()).jsonObject
+                assertEquals("REPLAY_EXISTING", replayBody.getValue("status").jsonPrimitive.content)
+                assertNull(withTimeoutOrNull(150) { receiveServerFrame() })
+                assertEquals(2, repositoryCalls)
+            }
+        }
+
     private fun ApplicationTestBuilder.configureRealtime(
         conversationSubscriptionAuthorizer: ConversationSubscriptionAuthorizer? = null,
+        durableTextRepository: DurableTextRepository? = null,
         maxConversationSubscriptions: Int = 100,
     ) {
         application {
@@ -368,6 +444,8 @@ class AuthenticatedRealtimeRoutesTest {
                 clock = Clock.fixed(Instant.parse("2026-08-11T23:30:00Z"), ZoneOffset.UTC),
                 eventIdFactory = { "server-event-fixed" },
                 conversationSubscriptionAuthorizer = conversationSubscriptionAuthorizer,
+                durableTextRepository = durableTextRepository,
+                serverMessageRefFactory = { "server-message-fixed" },
                 maxConversationSubscriptions = maxConversationSubscriptions,
             )
             configureRouting()
@@ -378,6 +456,14 @@ class AuthenticatedRealtimeRoutesTest {
             }
         }
     }
+
+    private suspend fun io.ktor.client.HttpClient.postMessageCommand() =
+        post("/v1/conversations/conversation-1/messages") {
+            bearerAuth(BUSINESS_TOKEN)
+            setBody(
+                """{"clientMessageRef":"client-message-1","idempotencyKey":"idempotency-1","body":"hello durable world"}""",
+            )
+        }
 
     private suspend fun DefaultClientWebSocketSession.receiveServerFrame(): ServerRealtimeFrame {
         val frame = assertIs<Frame.Text>(incoming.receive())

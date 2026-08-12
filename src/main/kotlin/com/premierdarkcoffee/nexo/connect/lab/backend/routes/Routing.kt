@@ -11,6 +11,7 @@ fun Application.configureRouting() {
         readinessRoutes(this@configureRouting)
         if (this@configureRouting.authenticatedRealtimeRuntimeOrNull() != null) {
             authenticatedRealtimeRoutes(this@configureRouting)
+            durableTextMessageRoutes(this@configureRouting)
         }
         get("/") {
             call.respondText("Hello, World!")

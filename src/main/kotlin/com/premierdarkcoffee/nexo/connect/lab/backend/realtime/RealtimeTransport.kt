@@ -3,12 +3,16 @@ package com.premierdarkcoffee.nexo.connect.lab.backend.realtime
 import com.premierdarkcoffee.nexo.connect.lab.application.identity.IdentityVerificationResult
 import com.premierdarkcoffee.nexo.connect.lab.application.identity.IdentityVerifier
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.ConversationSubscriptionAuthorizer
+import com.premierdarkcoffee.nexo.connect.lab.application.realtime.AuthorizedConversationEventHub
+import com.premierdarkcoffee.nexo.connect.lab.application.realtime.DurableTextMessageCoordinator
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.RepositoryConversationSubscriptionAuthorizer
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.UnavailableConversationSubscriptionAuthorizer
+import com.premierdarkcoffee.nexo.connect.lab.application.persistence.DurableTextRepository
 import com.premierdarkcoffee.nexo.connect.lab.domain.identity.ConnectPrincipal
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.RealtimeProtocol
 import com.premierdarkcoffee.nexo.connect.lab.infrastructure.identity.SyntheticRealtimeIdentityRegistry
 import com.premierdarkcoffee.nexo.connect.lab.infrastructure.persistence.postgres.conversationRepositoryOrNull
+import com.premierdarkcoffee.nexo.connect.lab.infrastructure.persistence.postgres.durableTextRepositoryOrNull
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
 import io.ktor.server.auth.Authentication
@@ -34,6 +38,8 @@ internal class AuthenticatedRealtimeRuntime(
     val clock: Clock,
     val eventIdFactory: () -> String,
     val conversationSubscriptionAuthorizer: ConversationSubscriptionAuthorizer,
+    val conversationEventHub: AuthorizedConversationEventHub,
+    val durableTextMessageCoordinator: DurableTextMessageCoordinator?,
     val maxConversationSubscriptions: Int,
 )
 
@@ -55,6 +61,8 @@ internal fun Application.installAuthenticatedRealtimeTransport(
     clock: Clock = Clock.systemUTC(),
     eventIdFactory: () -> String = { "event-${UUID.randomUUID()}" },
     conversationSubscriptionAuthorizer: ConversationSubscriptionAuthorizer? = null,
+    durableTextRepository: DurableTextRepository? = null,
+    serverMessageRefFactory: () -> String = { "message-${UUID.randomUUID()}" },
     maxConversationSubscriptions: Int = RealtimeProtocol.MAX_CONVERSATION_SUBSCRIPTIONS,
 ) {
     require(maxConversationSubscriptions in 1..RealtimeProtocol.MAX_CONVERSATION_SUBSCRIPTIONS) {
@@ -68,16 +76,30 @@ internal fun Application.installAuthenticatedRealtimeTransport(
             isLenient = false
         }
 
+    val resolvedSubscriptionAuthorizer =
+        conversationSubscriptionAuthorizer
+            ?: conversationRepositoryOrNull()?.let(::RepositoryConversationSubscriptionAuthorizer)
+            ?: UnavailableConversationSubscriptionAuthorizer
+    val conversationEventHub = AuthorizedConversationEventHub(resolvedSubscriptionAuthorizer)
+    val durableTextMessageCoordinator =
+        (durableTextRepository ?: durableTextRepositoryOrNull())?.let { repository ->
+            DurableTextMessageCoordinator(
+                repository = repository,
+                eventPublisher = conversationEventHub,
+                clock = clock,
+                serverMessageRefFactory = serverMessageRefFactory,
+            )
+        }
+
     attributes.put(
         RealtimeRuntimeKey,
         AuthenticatedRealtimeRuntime(
             json = protocolJson,
             clock = clock,
             eventIdFactory = eventIdFactory,
-            conversationSubscriptionAuthorizer =
-                conversationSubscriptionAuthorizer
-                    ?: conversationRepositoryOrNull()?.let(::RepositoryConversationSubscriptionAuthorizer)
-                    ?: UnavailableConversationSubscriptionAuthorizer,
+            conversationSubscriptionAuthorizer = resolvedSubscriptionAuthorizer,
+            conversationEventHub = conversationEventHub,
+            durableTextMessageCoordinator = durableTextMessageCoordinator,
             maxConversationSubscriptions = maxConversationSubscriptions,
         ),
     )

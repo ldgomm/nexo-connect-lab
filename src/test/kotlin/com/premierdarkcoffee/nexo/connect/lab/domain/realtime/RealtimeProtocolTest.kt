@@ -1,5 +1,8 @@
 package com.premierdarkcoffee.nexo.connect.lab.domain.realtime
 
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -97,5 +100,35 @@ class RealtimeProtocolTest {
             "UNEXPECTED_CONVERSATION_REF",
             assertIs<ClientRealtimeFrameValidation.Invalid>(unexpected).code,
         )
+    }
+
+    @Test
+    fun `serializes the durable message created event without protocol ambiguity`() {
+        val frame =
+            ServerRealtimeFrame(
+                type = ServerRealtimeFrameType.MESSAGE_CREATED,
+                eventId = "event-1",
+                serverTimestamp = "2026-08-12T09:45:01Z",
+                conversationRef = "conversation-1",
+                message =
+                    RealtimeMessageCreatedPayload(
+                        serverMessageRef = "message-1",
+                        sequence = 9,
+                        senderSubjectRef = "business-subject",
+                        senderActorType = "BUSINESS",
+                        messageType = "TEXT",
+                        body = "hello",
+                        acceptedAtServer = "2026-08-12T09:45:00Z",
+                    ),
+            )
+
+        val encoded = Json.encodeToString(frame)
+        val decoded = Json.decodeFromString<ServerRealtimeFrame>(encoded)
+
+        assertEquals(ServerRealtimeFrameType.MESSAGE_CREATED, decoded.type)
+        assertEquals("conversation-1", decoded.conversationRef)
+        assertEquals("message-1", decoded.message?.serverMessageRef)
+        assertEquals(9L, decoded.message?.sequence)
+        assertEquals("TEXT", decoded.message?.messageType)
     }
 }
