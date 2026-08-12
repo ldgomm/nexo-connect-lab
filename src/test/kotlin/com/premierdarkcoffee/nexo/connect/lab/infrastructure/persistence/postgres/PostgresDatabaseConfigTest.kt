@@ -13,10 +13,10 @@ class PostgresDatabaseConfigTest {
         val config =
             PostgresDatabaseConfig.fromEnvironment(
                 mapOf(
-                    "CONNECT_LAB_POSTGRES_JDBC_URL" to "jdbc:postgresql://postgres:5432/nexo_connect_lab",
-                    "CONNECT_LAB_POSTGRES_USER" to "nexo_connect_lab",
-                    "CONNECT_LAB_POSTGRES_PASSWORD" to secret,
-                    "CONNECT_LAB_POSTGRES_MAX_POOL_SIZE" to "12",
+                    "CONNECT_LAB_POSTGRES_APP_JDBC_URL" to "jdbc:postgresql://postgres:5432/nexo_connect_lab",
+                    "CONNECT_LAB_POSTGRES_APP_USER" to "nexo_connect_lab_app",
+                    "CONNECT_LAB_POSTGRES_APP_PASSWORD" to secret,
+                    "CONNECT_LAB_POSTGRES_APP_MAX_POOL_SIZE" to "12",
                 ),
             )
 

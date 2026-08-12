@@ -14,11 +14,13 @@ kotlin {
     jvmToolchain(21)
 }
 dependencies {
+    implementation(libs.flyway.core)
     implementation(ktorLibs.server.config.yaml)
     implementation(ktorLibs.server.core)
     implementation(ktorLibs.server.netty)
     implementation(libs.hikari)
     implementation(libs.logback.classic)
+    runtimeOnly(libs.flyway.database.postgresql)
     runtimeOnly(libs.postgresql.jdbc)
 
     testImplementation(kotlin("test"))

@@ -11,16 +11,16 @@ class PostgresDatabaseConfig(
 ) {
     init {
         require(jdbcUrl.matches(Regex("^jdbc:postgresql://[^\\s\\u0000]+$"))) {
-            "CONNECT_LAB_POSTGRES_JDBC_URL must be a PostgreSQL JDBC URL"
+            "CONNECT_LAB_POSTGRES_APP_JDBC_URL must be a PostgreSQL JDBC URL"
         }
         require(user.isNotBlank() && '\u0000' !in user) {
-            "CONNECT_LAB_POSTGRES_USER must be non-blank and contain no NUL"
+            "CONNECT_LAB_POSTGRES_APP_USER must be non-blank and contain no NUL"
         }
         require(password.isNotBlank() && '\u0000' !in password) {
-            "CONNECT_LAB_POSTGRES_PASSWORD must be non-blank and contain no NUL"
+            "CONNECT_LAB_POSTGRES_APP_PASSWORD must be non-blank and contain no NUL"
         }
         require(maximumPoolSize in 1..64) {
-            "CONNECT_LAB_POSTGRES_MAX_POOL_SIZE must be between 1 and 64"
+            "CONNECT_LAB_POSTGRES_APP_MAX_POOL_SIZE must be between 1 and 64"
         }
     }
 
@@ -34,13 +34,13 @@ class PostgresDatabaseConfig(
                     ?: error("Missing required environment variable: $name")
 
             val maximumPoolSize =
-                required("CONNECT_LAB_POSTGRES_MAX_POOL_SIZE").toIntOrNull()
-                    ?: error("CONNECT_LAB_POSTGRES_MAX_POOL_SIZE must be an integer")
+                required("CONNECT_LAB_POSTGRES_APP_MAX_POOL_SIZE").toIntOrNull()
+                    ?: error("CONNECT_LAB_POSTGRES_APP_MAX_POOL_SIZE must be an integer")
 
             return PostgresDatabaseConfig(
-                jdbcUrl = required("CONNECT_LAB_POSTGRES_JDBC_URL"),
-                user = required("CONNECT_LAB_POSTGRES_USER"),
-                password = required("CONNECT_LAB_POSTGRES_PASSWORD"),
+                jdbcUrl = required("CONNECT_LAB_POSTGRES_APP_JDBC_URL"),
+                user = required("CONNECT_LAB_POSTGRES_APP_USER"),
+                password = required("CONNECT_LAB_POSTGRES_APP_PASSWORD"),
                 maximumPoolSize = maximumPoolSize,
             )
         }

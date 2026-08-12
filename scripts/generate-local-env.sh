@@ -37,15 +37,18 @@ cleanup() {
 trap cleanup EXIT
 
 POSTGRES_PASSWORD="$(openssl rand -hex 32)"
+POSTGRES_APP_PASSWORD="$(openssl rand -hex 32)"
 REDIS_PASSWORD="$(openssl rand -hex 32)"
 MINIO_ROOT_PASSWORD="$(openssl rand -hex 32)"
 
 awk \
     -v postgres_password="$POSTGRES_PASSWORD" \
+    -v postgres_app_password="$POSTGRES_APP_PASSWORD" \
     -v redis_password="$REDIS_PASSWORD" \
     -v minio_root_password="$MINIO_ROOT_PASSWORD" '
     {
         gsub(/__CONNECT_LAB_POSTGRES_PASSWORD__/, postgres_password)
+        gsub(/__CONNECT_LAB_POSTGRES_APP_PASSWORD__/, postgres_app_password)
         gsub(/__CONNECT_LAB_REDIS_PASSWORD__/, redis_password)
         gsub(/__CONNECT_LAB_MINIO_ROOT_PASSWORD__/, minio_root_password)
         print

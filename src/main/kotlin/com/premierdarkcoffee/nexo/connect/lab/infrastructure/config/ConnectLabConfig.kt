@@ -44,6 +44,7 @@ data class ConnectLabConfig(
     val callsEnabled: Boolean,
     val e2eeClaim: Boolean,
     val nexoDbDirectAccess: Boolean,
+    val databaseLifecycleEnabled: Boolean,
 )
 
 object ConnectLabConfigLoader {
@@ -72,6 +73,7 @@ object ConnectLabConfigLoader {
                 callsEnabled = strictBoolean("nexoConnectLab.callsEnabled"),
                 e2eeClaim = strictBoolean("nexoConnectLab.e2eeClaim"),
                 nexoDbDirectAccess = strictBoolean("nexoConnectLab.nexoDbDirectAccess"),
+                databaseLifecycleEnabled = strictBoolean("nexoConnectLab.databaseLifecycleEnabled"),
             )
 
         require(config.serviceName == "nexo-connect-lab") {

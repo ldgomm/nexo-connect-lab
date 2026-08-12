@@ -108,13 +108,17 @@ required_files=(
     Makefile
     build.gradle.kts
     compose.yaml
+    docker/postgres/init/001-create-connect-app-role.sh
     gradlew
     scripts/ci-verify.sh
     scripts/generate-local-env.sh
     scripts/smoke-local-stack.sh
+    scripts/verify-database-lifecycle.sh
     scripts/verify-postgres-repository.sh
     scripts/verify-postgres-schema.sh
     settings.gradle.kts
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresDatabaseLifecycle.kt
+    src/main/resources/db/migration/V2__connect_application_role_grants.sql
 )
 
 for required_file in "${required_files[@]}"; do
@@ -178,7 +182,9 @@ if [[ "$(grep -c '^      - \"127\.0\.0\.1:' compose.yaml)" != "5" ]] || \
 fi
 
 app_block="$(awk '/^  app:$/,/^  postgres:$/' compose.yaml)"
-if grep -Eq 'POSTGRES_PASSWORD|REDIS_PASSWORD|MINIO_ROOT_(USER|PASSWORD)' <<<"$app_block"; then
+if grep -Eq 'CONNECT_LAB_POSTGRES_(USER|PASSWORD):|REDIS_PASSWORD|MINIO_ROOT_(USER|PASSWORD)' <<<"$app_block" || \
+    ! grep -Fq 'CONNECT_LAB_POSTGRES_APP_USER:' <<<"$app_block" || \
+    ! grep -Fq 'CONNECT_LAB_POSTGRES_APP_PASSWORD:' <<<"$app_block"; then
     printf 'CI_STATIC_CONTRACT=FAIL\n' >&2
     printf 'ERROR=APPLICATION_RECEIVES_INFRASTRUCTURE_ROOT_SECRET\n' >&2
     exit 18
@@ -198,8 +204,10 @@ done
 
 bash -n scripts/generate-local-env.sh
 bash -n scripts/smoke-local-stack.sh
+bash -n scripts/verify-database-lifecycle.sh
 bash -n scripts/verify-postgres-repository.sh
 bash -n scripts/verify-postgres-schema.sh
+bash -n docker/postgres/init/001-create-connect-app-role.sh
 bash -n scripts/ci-verify.sh
 git diff --check
 printf 'CI_STATIC_CONTRACT=PASS\n'
@@ -239,7 +247,10 @@ for exact_env in \
     'CONNECT_LAB_NEXO_INTEGRATION_ENABLED=false' \
     'CONNECT_LAB_NEXO_DB_DIRECT_ACCESS=false' \
     'CONNECT_LAB_CALLS_ENABLED=false' \
-    'CONNECT_LAB_E2EE_CLAIM=false'; do
+    'CONNECT_LAB_E2EE_CLAIM=false' \
+    'CONNECT_LAB_DATABASE_LIFECYCLE_ENABLED=true' \
+    'CONNECT_LAB_POSTGRES_APP_USER=nexo_connect_lab_app' \
+    'CONNECT_LAB_POSTGRES_APP_MAX_POOL_SIZE=12'; do
     if ! grep -Fqx "$exact_env" "$ENV_FILE"; then
         printf 'ERROR=LOCAL_ENV_ISOLATION_CONTRACT_MISMATCH\n' >&2
         exit 23
@@ -306,3 +317,6 @@ printf 'POSTGRES_SCHEMA_CONTRACT=PASS\n'
 
 ./scripts/verify-postgres-repository.sh
 printf 'POSTGRES_REPOSITORY_CONTRACT=PASS\n'
+
+./scripts/verify-database-lifecycle.sh
+printf 'DATABASE_LIFECYCLE_CONTRACT=PASS\n'

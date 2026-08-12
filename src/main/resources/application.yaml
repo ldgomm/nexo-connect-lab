@@ -4,6 +4,7 @@ ktor:
   application:
     modules:
       - com.premierdarkcoffee.nexo.connect.lab.infrastructure.config.ConnectLabConfigKt.configureTypedConfiguration
+      - com.premierdarkcoffee.nexo.connect.lab.infrastructure.persistence.postgres.PostgresDatabaseLifecycleKt.configurePostgresDatabaseLifecycle
       - com.premierdarkcoffee.nexo.connect.lab.backend.routes.RoutingKt.configureRouting
 
 nexoConnectLab:
@@ -19,3 +20,4 @@ nexoConnectLab:
   callsEnabled: ${CONNECT_LAB_CALLS_ENABLED:false}
   e2eeClaim: ${CONNECT_LAB_E2EE_CLAIM:false}
   nexoDbDirectAccess: ${CONNECT_LAB_NEXO_DB_DIRECT_ACCESS:false}
+  databaseLifecycleEnabled: ${CONNECT_LAB_DATABASE_LIFECYCLE_ENABLED:false}

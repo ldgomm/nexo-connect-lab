@@ -61,10 +61,10 @@ fi
 
 (
     cd "$PROJECT_DIR"
-    CONNECT_LAB_POSTGRES_JDBC_URL="jdbc:postgresql://127.0.0.1:${POSTGRES_HOST_PORT}/${DATABASE_NAME}?sslmode=disable&ApplicationName=nexo-connect-lab-b2-test" \
-    CONNECT_LAB_POSTGRES_USER="$POSTGRES_USER" \
-    CONNECT_LAB_POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
-    CONNECT_LAB_POSTGRES_MAX_POOL_SIZE=16 \
+    CONNECT_LAB_POSTGRES_APP_JDBC_URL="jdbc:postgresql://127.0.0.1:${POSTGRES_HOST_PORT}/${DATABASE_NAME}?sslmode=disable&ApplicationName=nexo-connect-lab-b2-test" \
+    CONNECT_LAB_POSTGRES_APP_USER="$POSTGRES_USER" \
+    CONNECT_LAB_POSTGRES_APP_PASSWORD="$POSTGRES_PASSWORD" \
+    CONNECT_LAB_POSTGRES_APP_MAX_POOL_SIZE=16 \
         ./gradlew --no-daemon postgresIntegrationTest --console=plain
 )
 

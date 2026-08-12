@@ -8,6 +8,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class ConnectLabConfigTest {
     @Test
@@ -26,6 +27,7 @@ class ConnectLabConfigTest {
         assertFalse(config.callsEnabled)
         assertFalse(config.e2eeClaim)
         assertFalse(config.nexoDbDirectAccess)
+        assertTrue(config.databaseLifecycleEnabled)
     }
 
     @Test
@@ -92,6 +94,7 @@ class ConnectLabConfigTest {
                 "nexoConnectLab.callsEnabled" to "false",
                 "nexoConnectLab.e2eeClaim" to "false",
                 "nexoConnectLab.nexoDbDirectAccess" to "false",
+                "nexoConnectLab.databaseLifecycleEnabled" to "true",
             )
         values.putAll(overrides)
         return MapApplicationConfig(*values.map { it.toPair() }.toTypedArray())
