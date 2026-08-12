@@ -48,4 +48,54 @@ class RealtimeProtocolTest {
             assertIs<ClientRealtimeFrameValidation.Invalid>(result).code,
         )
     }
+
+    @Test
+    fun `accepts a bounded conversation subscription reference`() {
+        val result =
+            ClientRealtimeFrame(
+                protocolMajor = 1,
+                type = ClientRealtimeFrameType.SUBSCRIBE_CONVERSATION,
+                eventId = "event-subscribe-1",
+                conversationRef = "conversation-1",
+            ).validateEnvelope()
+
+        assertEquals(ClientRealtimeFrameValidation.Valid, result)
+    }
+
+    @Test
+    fun `rejects missing oversized and unexpected conversation references`() {
+        val missing =
+            ClientRealtimeFrame(
+                protocolMajor = 1,
+                type = ClientRealtimeFrameType.SUBSCRIBE_CONVERSATION,
+                eventId = "event-subscribe-missing",
+            ).validateEnvelope()
+        val oversized =
+            ClientRealtimeFrame(
+                protocolMajor = 1,
+                type = ClientRealtimeFrameType.SUBSCRIBE_CONVERSATION,
+                eventId = "event-subscribe-oversized",
+                conversationRef = "ñ".repeat(129),
+            ).validateEnvelope()
+        val unexpected =
+            ClientRealtimeFrame(
+                protocolMajor = 1,
+                type = ClientRealtimeFrameType.PING,
+                eventId = "event-ping-with-conversation",
+                conversationRef = "conversation-1",
+            ).validateEnvelope()
+
+        assertEquals(
+            "INVALID_CONVERSATION_REF",
+            assertIs<ClientRealtimeFrameValidation.Invalid>(missing).code,
+        )
+        assertEquals(
+            "INVALID_CONVERSATION_REF",
+            assertIs<ClientRealtimeFrameValidation.Invalid>(oversized).code,
+        )
+        assertEquals(
+            "UNEXPECTED_CONVERSATION_REF",
+            assertIs<ClientRealtimeFrameValidation.Invalid>(unexpected).code,
+        )
+    }
 }

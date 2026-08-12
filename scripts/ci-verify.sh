@@ -114,6 +114,7 @@ required_files=(
     scripts/generate-local-env.sh
     scripts/smoke-local-stack.sh
     scripts/verify-authenticated-websocket.sh
+    scripts/verify-authorized-conversation-subscriptions.sh
     scripts/verify-database-lifecycle.sh
     scripts/verify-durable-restart-recovery.sh
     scripts/verify-postgres-repository.sh
@@ -121,6 +122,7 @@ required_files=(
     settings.gradle.kts
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/persistence/ConversationRepository.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/persistence/DurableMessageHistoryRepository.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/ConversationSubscriptionAuthorizer.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/realtime/RealtimeTransport.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/RealtimeProtocol.kt
@@ -147,6 +149,7 @@ required_files=(
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutesTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRuntimeTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/RealtimeProtocolTest.kt
+    src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/ConversationSubscriptionAuthorizerTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/identity/SyntheticRealtimeIdentityRegistryTest.kt
 )
 
@@ -234,6 +237,7 @@ done
 bash -n scripts/generate-local-env.sh
 bash -n scripts/smoke-local-stack.sh
 bash -n scripts/verify-authenticated-websocket.sh
+bash -n scripts/verify-authorized-conversation-subscriptions.sh
 bash -n scripts/verify-database-lifecycle.sh
 bash -n scripts/verify-durable-restart-recovery.sh
 bash -n scripts/verify-postgres-repository.sh
@@ -335,7 +339,7 @@ if ! grep -Fq 'io.ktor:ktor-version-catalog:3.5.2' settings.gradle.kts ||
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/RealtimeProtocol.kt ||
     ! grep -Fq 'BINARY_FRAMES_UNSUPPORTED' \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt ||
-    grep -En 'SUBSCRIBE_CONVERSATION|MESSAGE_CREATED|ACK_DELIVERY|UPDATE_READ_CURSOR|TYPING_(START|STOP)|PRESENCE_CHANGED|RESYNC_REQUIRED' \
+    grep -En 'MESSAGE_CREATED|ACK_DELIVERY|UPDATE_READ_CURSOR|TYPING_(START|STOP)|PRESENCE_CHANGED|RESYNC_REQUIRED' \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/realtime/RealtimeTransport.kt \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/RealtimeProtocol.kt ||
@@ -343,6 +347,36 @@ if ! grep -Fq 'io.ktor:ktor-version-catalog:3.5.2' settings.gradle.kts ||
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/RealtimeProtocol.kt; then
     printf 'CI_STATIC_CONTRACT=FAIL\n' >&2
     printf 'ERROR=CONNECT_C1_AUTHENTICATED_WEBSOCKET_CONTRACT_MISMATCH\n' >&2
+    exit 20
+fi
+
+if ! grep -Fq 'ClientRealtimeFrameType.SUBSCRIBE_CONVERSATION' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt ||
+    ! grep -Fq 'ServerRealtimeFrameType.CONVERSATION_SUBSCRIBED' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt ||
+    ! grep -Fq 'RepositoryConversationSubscriptionAuthorizer' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/realtime/RealtimeTransport.kt ||
+    ! grep -Fq 'OpenConversationRequest' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/ConversationSubscriptionAuthorizer.kt ||
+    ! grep -Fq 'OpenConversationResult.NotFoundOrDenied' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/ConversationSubscriptionAuthorizer.kt ||
+    ! grep -Fq 'ConversationParticipantStatus.ACTIVE' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/ConversationSubscriptionAuthorizer.kt ||
+    ! grep -Fq 'withContext(Dispatchers.IO)' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt ||
+    ! grep -Fq 'CONVERSATION_NOT_FOUND_OR_DENIED' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt ||
+    ! grep -Fq 'MAX_CONVERSATION_SUBSCRIPTIONS = 100' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/RealtimeProtocol.kt ||
+    grep -En 'MESSAGE_CREATED|ACK_DELIVERY|UPDATE_READ_CURSOR|TYPING_(START|STOP)|PRESENCE_CHANGED|RESYNC_REQUIRED' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/ConversationSubscriptionAuthorizer.kt \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/realtime/RealtimeTransport.kt \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/RealtimeProtocol.kt ||
+    grep -En '(token|bearerToken|credential)[[:space:]]*:' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/RealtimeProtocol.kt; then
+    printf 'CI_STATIC_CONTRACT=FAIL\n' >&2
+    printf 'ERROR=CONNECT_C2_AUTHORIZED_SUBSCRIPTION_CONTRACT_MISMATCH\n' >&2
     exit 20
 fi
 printf 'CI_STATIC_CONTRACT=PASS\n'
@@ -463,6 +497,9 @@ printf 'STACK_SMOKE=PASS\n'
 
 ./scripts/verify-authenticated-websocket.sh
 printf 'AUTHENTICATED_WEBSOCKET_CONTRACT=PASS\n'
+
+./scripts/verify-authorized-conversation-subscriptions.sh
+printf 'AUTHORIZED_CONVERSATION_SUBSCRIPTION_CONTRACT=PASS\n'
 
 ./scripts/verify-postgres-schema.sh
 printf 'POSTGRES_SCHEMA_CONTRACT=PASS\n'

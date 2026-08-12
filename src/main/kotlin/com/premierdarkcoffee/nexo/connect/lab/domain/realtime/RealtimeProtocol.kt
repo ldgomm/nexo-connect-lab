@@ -7,17 +7,21 @@ object RealtimeProtocol {
     const val MAX_TEXT_FRAME_BYTES = 16_384L
     const val MAX_EVENT_ID_LENGTH = 128
     const val MAX_CORRELATION_ID_LENGTH = 128
+    const val MAX_CONVERSATION_REF_UTF8_BYTES = 256
+    const val MAX_CONVERSATION_SUBSCRIPTIONS = 100
 }
 
 object ClientRealtimeFrameType {
     const val AUTH = "AUTH"
     const val PING = "PING"
+    const val SUBSCRIBE_CONVERSATION = "SUBSCRIBE_CONVERSATION"
 }
 
 object ServerRealtimeFrameType {
     const val AUTH_OK = "AUTH_OK"
     const val ERROR = "ERROR"
     const val PONG = "PONG"
+    const val CONVERSATION_SUBSCRIBED = "CONVERSATION_SUBSCRIBED"
 }
 
 @Serializable
@@ -26,6 +30,7 @@ data class ClientRealtimeFrame(
     val type: String,
     val eventId: String,
     val correlationId: String? = null,
+    val conversationRef: String? = null,
 )
 
 @Serializable
@@ -49,6 +54,8 @@ data class ServerRealtimeFrame(
     val correlationId: String? = null,
     val subject: AuthenticatedRealtimeSubject? = null,
     val error: RealtimeProtocolError? = null,
+    val conversationRef: String? = null,
+    val lastMessageSequence: Long? = null,
 )
 
 sealed interface ClientRealtimeFrameValidation {
@@ -71,6 +78,26 @@ fun ClientRealtimeFrame.validateEnvelope(): ClientRealtimeFrameValidation {
     }
     if (correlationId?.let { it.isBlank() || it.length > RealtimeProtocol.MAX_CORRELATION_ID_LENGTH } == true) {
         return ClientRealtimeFrameValidation.Invalid("INVALID_CORRELATION_ID")
+    }
+    when (type) {
+        ClientRealtimeFrameType.SUBSCRIBE_CONVERSATION -> {
+            val requestedConversationRef = conversationRef
+            if (
+                requestedConversationRef == null ||
+                requestedConversationRef.isBlank() ||
+                '\u0000' in requestedConversationRef ||
+                requestedConversationRef.toByteArray(Charsets.UTF_8).size >
+                RealtimeProtocol.MAX_CONVERSATION_REF_UTF8_BYTES
+            ) {
+                return ClientRealtimeFrameValidation.Invalid("INVALID_CONVERSATION_REF")
+            }
+        }
+
+        ClientRealtimeFrameType.AUTH,
+        ClientRealtimeFrameType.PING,
+        -> if (conversationRef != null) {
+            return ClientRealtimeFrameValidation.Invalid("UNEXPECTED_CONVERSATION_REF")
+        }
     }
     return ClientRealtimeFrameValidation.Valid
 }

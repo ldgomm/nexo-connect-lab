@@ -3,6 +3,8 @@ package com.premierdarkcoffee.nexo.connect.lab.backend.routes
 import com.premierdarkcoffee.nexo.connect.lab.backend.realtime.AuthenticatedConnectPrincipal
 import com.premierdarkcoffee.nexo.connect.lab.backend.realtime.REALTIME_AUTH_PROVIDER
 import com.premierdarkcoffee.nexo.connect.lab.backend.realtime.authenticatedRealtimeRuntime
+import com.premierdarkcoffee.nexo.connect.lab.application.realtime.AuthorizeConversationSubscriptionRequest
+import com.premierdarkcoffee.nexo.connect.lab.application.realtime.ConversationSubscriptionAuthorizationResult
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.AuthenticatedRealtimeSubject
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.ClientRealtimeFrame
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.ClientRealtimeFrameType
@@ -25,6 +27,9 @@ import io.ktor.websocket.readText
 import io.ktor.websocket.send
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withContext
 
 fun Route.authenticatedRealtimeRoutes(application: Application) {
     val runtime = application.authenticatedRealtimeRuntime()
@@ -51,6 +56,7 @@ fun Route.authenticatedRealtimeRoutes(application: Application) {
                 ),
             )
 
+            val subscribedConversationRefs = linkedSetOf<String>()
             for (frame in incoming) {
                 when (frame) {
                     is Frame.Text -> {
@@ -72,7 +78,13 @@ fun Route.authenticatedRealtimeRoutes(application: Application) {
                             }
 
                         when (val validation = clientFrame.validateEnvelope()) {
-                            ClientRealtimeFrameValidation.Valid -> handleClientFrame(runtime, clientFrame)
+                            ClientRealtimeFrameValidation.Valid ->
+                                handleClientFrame(
+                                    runtime = runtime,
+                                    authenticated = authenticated,
+                                    subscribedConversationRefs = subscribedConversationRefs,
+                                    frame = clientFrame,
+                                )
                             is ClientRealtimeFrameValidation.Invalid -> {
                                 val closeCode =
                                     if (validation.code == "INCOMPATIBLE_PROTOCOL_MAJOR") {
@@ -100,6 +112,8 @@ fun Route.authenticatedRealtimeRoutes(application: Application) {
 
 private suspend fun DefaultWebSocketServerSession.handleClientFrame(
     runtime: com.premierdarkcoffee.nexo.connect.lab.backend.realtime.AuthenticatedRealtimeRuntime,
+    authenticated: AuthenticatedConnectPrincipal,
+    subscribedConversationRefs: MutableSet<String>,
     frame: ClientRealtimeFrame,
 ) {
     when (frame.type) {
@@ -117,8 +131,71 @@ private suspend fun DefaultWebSocketServerSession.handleClientFrame(
         ClientRealtimeFrameType.AUTH ->
             sendProtocolError(runtime, "ALREADY_AUTHENTICATED", false, frame.correlationId)
 
+        ClientRealtimeFrameType.SUBSCRIBE_CONVERSATION ->
+            subscribeConversation(
+                runtime = runtime,
+                authenticated = authenticated,
+                subscribedConversationRefs = subscribedConversationRefs,
+                frame = frame,
+            )
+
         else ->
             sendProtocolError(runtime, "UNSUPPORTED_FRAME_TYPE", false, frame.correlationId)
+    }
+}
+
+private suspend fun DefaultWebSocketServerSession.subscribeConversation(
+    runtime: com.premierdarkcoffee.nexo.connect.lab.backend.realtime.AuthenticatedRealtimeRuntime,
+    authenticated: AuthenticatedConnectPrincipal,
+    subscribedConversationRefs: MutableSet<String>,
+    frame: ClientRealtimeFrame,
+) {
+    val conversationRef = checkNotNull(frame.conversationRef)
+    val authorization =
+        try {
+            withContext(Dispatchers.IO) {
+                runtime.conversationSubscriptionAuthorizer.authorize(
+                    AuthorizeConversationSubscriptionRequest(
+                        principal = authenticated.connectPrincipal,
+                        conversationRef = conversationRef,
+                    ),
+                )
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            ConversationSubscriptionAuthorizationResult.Unavailable
+        }
+
+    when (authorization) {
+        is ConversationSubscriptionAuthorizationResult.Authorized -> {
+            if (
+                conversationRef !in subscribedConversationRefs &&
+                subscribedConversationRefs.size >= runtime.maxConversationSubscriptions
+            ) {
+                sendProtocolError(runtime, "SUBSCRIPTION_LIMIT_REACHED", false, frame.correlationId)
+                return
+            }
+
+            subscribedConversationRefs += conversationRef
+            sendServerFrame(
+                runtime,
+                ServerRealtimeFrame(
+                    type = ServerRealtimeFrameType.CONVERSATION_SUBSCRIBED,
+                    eventId = runtime.eventIdFactory(),
+                    serverTimestamp = runtime.clock.instant().toString(),
+                    correlationId = frame.correlationId ?: frame.eventId,
+                    conversationRef = authorization.conversationRef,
+                    lastMessageSequence = authorization.lastMessageSequence,
+                ),
+            )
+        }
+
+        ConversationSubscriptionAuthorizationResult.NotFoundOrDenied ->
+            sendProtocolError(runtime, "CONVERSATION_NOT_FOUND_OR_DENIED", false, frame.correlationId)
+
+        ConversationSubscriptionAuthorizationResult.Unavailable ->
+            sendProtocolError(runtime, "SUBSCRIPTION_SERVICE_UNAVAILABLE", true, frame.correlationId)
     }
 }
 

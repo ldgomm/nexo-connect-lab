@@ -1,5 +1,7 @@
 package com.premierdarkcoffee.nexo.connect.lab.backend.routes
 
+import com.premierdarkcoffee.nexo.connect.lab.application.realtime.ConversationSubscriptionAuthorizationResult
+import com.premierdarkcoffee.nexo.connect.lab.application.realtime.ConversationSubscriptionAuthorizer
 import com.premierdarkcoffee.nexo.connect.lab.backend.realtime.REALTIME_AUTH_PROVIDER
 import com.premierdarkcoffee.nexo.connect.lab.backend.realtime.installAuthenticatedRealtimeTransport
 import com.premierdarkcoffee.nexo.connect.lab.domain.identity.ConnectActorType
@@ -34,6 +36,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 
 class AuthenticatedRealtimeRoutesTest {
     private val protocolJson = Json { ignoreUnknownKeys = false }
@@ -169,7 +172,7 @@ class AuthenticatedRealtimeRoutesTest {
                     protocolJson.encodeToString(
                         ClientRealtimeFrame(
                             protocolMajor = 1,
-                            type = "SUBSCRIBE_CONVERSATION",
+                            type = "FUTURE_FRAME",
                             eventId = "client-event-future",
                         ),
                     ),
@@ -192,7 +195,155 @@ class AuthenticatedRealtimeRoutesTest {
         }
     }
 
-    private fun ApplicationTestBuilder.configureRealtime() {
+    @Test
+    fun `authorizes and acknowledges a conversation subscription with durable sequence`() =
+        testApplication {
+            var authorizedPrincipal: ConnectPrincipal? = null
+            configureRealtime(
+                conversationSubscriptionAuthorizer =
+                    ConversationSubscriptionAuthorizer { request ->
+                        authorizedPrincipal = request.principal
+                        ConversationSubscriptionAuthorizationResult.Authorized(
+                            conversationRef = request.conversationRef,
+                            lastMessageSequence = 42,
+                        )
+                    },
+            )
+            val realtimeClient = createClient { install(WebSockets) }
+
+            realtimeClient.webSocket(
+                request = {
+                    url("/v1/realtime")
+                    bearerAuth(BUSINESS_TOKEN)
+                },
+            ) {
+                receiveServerFrame()
+                sendSubscription("allowed-conversation", "subscribe-correlation")
+
+                val subscribed = receiveServerFrame()
+                assertEquals(ServerRealtimeFrameType.CONVERSATION_SUBSCRIBED, subscribed.type)
+                assertEquals("allowed-conversation", subscribed.conversationRef)
+                assertEquals(42L, subscribed.lastMessageSequence)
+                assertEquals("subscribe-correlation", subscribed.correlationId)
+                assertEquals("synthetic-business", authorizedPrincipal?.subjectRef)
+            }
+        }
+
+    @Test
+    fun `does not reveal whether a conversation is absent or denied and keeps the socket usable`() =
+        testApplication {
+            configureRealtime(
+                conversationSubscriptionAuthorizer =
+                    ConversationSubscriptionAuthorizer {
+                        ConversationSubscriptionAuthorizationResult.NotFoundOrDenied
+                    },
+            )
+            val realtimeClient = createClient { install(WebSockets) }
+
+            realtimeClient.webSocket(
+                request = {
+                    url("/v1/realtime")
+                    bearerAuth(BUSINESS_TOKEN)
+                },
+            ) {
+                receiveServerFrame()
+                sendSubscription("denied-conversation", "denied-correlation")
+                val denied = receiveServerFrame()
+                sendSubscription("absent-conversation", "absent-correlation")
+                val absent = receiveServerFrame()
+
+                assertEquals("CONVERSATION_NOT_FOUND_OR_DENIED", denied.error?.code)
+                assertEquals(denied.error, absent.error)
+                assertNull(denied.conversationRef)
+                assertNull(absent.conversationRef)
+
+                send(
+                    Frame.Text(
+                        protocolJson.encodeToString(
+                            ClientRealtimeFrame(
+                                protocolMajor = 1,
+                                type = ClientRealtimeFrameType.PING,
+                                eventId = "event-after-denial",
+                            ),
+                        ),
+                    ),
+                )
+                assertEquals(ServerRealtimeFrameType.PONG, receiveServerFrame().type)
+            }
+        }
+
+    @Test
+    fun `reauthorizes duplicate subscriptions and bounds distinct subscriptions per socket`() =
+        testApplication {
+            var authorizationCount = 0
+            configureRealtime(
+                conversationSubscriptionAuthorizer =
+                    ConversationSubscriptionAuthorizer { request ->
+                        authorizationCount += 1
+                        ConversationSubscriptionAuthorizationResult.Authorized(request.conversationRef, 0)
+                    },
+                maxConversationSubscriptions = 1,
+            )
+            val realtimeClient = createClient { install(WebSockets) }
+
+            realtimeClient.webSocket(
+                request = {
+                    url("/v1/realtime")
+                    bearerAuth(CLIENT_TOKEN)
+                },
+            ) {
+                receiveServerFrame()
+                sendSubscription("conversation-one", "first")
+                assertEquals(ServerRealtimeFrameType.CONVERSATION_SUBSCRIBED, receiveServerFrame().type)
+                sendSubscription("conversation-one", "duplicate")
+                assertEquals(ServerRealtimeFrameType.CONVERSATION_SUBSCRIBED, receiveServerFrame().type)
+                sendSubscription("conversation-two", "over-limit")
+                assertEquals("SUBSCRIPTION_LIMIT_REACHED", receiveServerFrame().error?.code)
+                assertEquals(3, authorizationCount)
+            }
+        }
+
+    @Test
+    fun `reports a retryable subscription outage without closing the socket`() = testApplication {
+        configureRealtime(
+            conversationSubscriptionAuthorizer =
+                ConversationSubscriptionAuthorizer {
+                    error("synthetic database outage")
+                },
+        )
+        val realtimeClient = createClient { install(WebSockets) }
+
+        realtimeClient.webSocket(
+            request = {
+                url("/v1/realtime")
+                bearerAuth(BUSINESS_TOKEN)
+            },
+        ) {
+            receiveServerFrame()
+            sendSubscription("temporarily-unavailable", "outage")
+            val unavailable = receiveServerFrame()
+            assertEquals("SUBSCRIPTION_SERVICE_UNAVAILABLE", unavailable.error?.code)
+            assertEquals(true, unavailable.error?.retryable)
+
+            send(
+                Frame.Text(
+                    protocolJson.encodeToString(
+                        ClientRealtimeFrame(
+                            protocolMajor = 1,
+                            type = ClientRealtimeFrameType.PING,
+                            eventId = "event-after-outage",
+                        ),
+                    ),
+                ),
+            )
+            assertEquals(ServerRealtimeFrameType.PONG, receiveServerFrame().type)
+        }
+    }
+
+    private fun ApplicationTestBuilder.configureRealtime(
+        conversationSubscriptionAuthorizer: ConversationSubscriptionAuthorizer? = null,
+        maxConversationSubscriptions: Int = 100,
+    ) {
         application {
             installAuthenticatedRealtimeTransport(
                 identityVerifier =
@@ -216,6 +367,8 @@ class AuthenticatedRealtimeRoutesTest {
                     ),
                 clock = Clock.fixed(Instant.parse("2026-08-11T23:30:00Z"), ZoneOffset.UTC),
                 eventIdFactory = { "server-event-fixed" },
+                conversationSubscriptionAuthorizer = conversationSubscriptionAuthorizer,
+                maxConversationSubscriptions = maxConversationSubscriptions,
             )
             configureRouting()
             routing {
@@ -229,6 +382,25 @@ class AuthenticatedRealtimeRoutesTest {
     private suspend fun DefaultClientWebSocketSession.receiveServerFrame(): ServerRealtimeFrame {
         val frame = assertIs<Frame.Text>(incoming.receive())
         return protocolJson.decodeFromString(frame.readText())
+    }
+
+    private suspend fun DefaultClientWebSocketSession.sendSubscription(
+        conversationRef: String,
+        correlationId: String,
+    ) {
+        send(
+            Frame.Text(
+                protocolJson.encodeToString(
+                    ClientRealtimeFrame(
+                        protocolMajor = 1,
+                        type = ClientRealtimeFrameType.SUBSCRIBE_CONVERSATION,
+                        eventId = "event-$correlationId",
+                        correlationId = correlationId,
+                        conversationRef = conversationRef,
+                    ),
+                ),
+            ),
+        )
     }
 
     private companion object {
