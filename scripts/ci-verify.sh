@@ -114,6 +114,7 @@ required_files=(
     scripts/generate-local-env.sh
     scripts/smoke-local-stack.sh
     scripts/verify-database-lifecycle.sh
+    scripts/verify-durable-restart-recovery.sh
     scripts/verify-postgres-repository.sh
     scripts/verify-postgres-schema.sh
     settings.gradle.kts
@@ -134,6 +135,7 @@ required_files=(
     src/postgresIntegrationTest/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresConversationRepositoryIntegrationTest.kt
     src/postgresIntegrationTest/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresConversationListingIntegrationTest.kt
     src/postgresIntegrationTest/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresDurableMessageHistoryRepositoryIntegrationTest.kt
+    src/postgresIntegrationTest/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresDurableRestartRecoveryIntegrationTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/persistence/BusinessClientConversationPersistenceBundleTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/conversation/DurableConversationListingTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/message/DurableMessageHistoryTest.kt
@@ -223,6 +225,7 @@ done
 bash -n scripts/generate-local-env.sh
 bash -n scripts/smoke-local-stack.sh
 bash -n scripts/verify-database-lifecycle.sh
+bash -n scripts/verify-durable-restart-recovery.sh
 bash -n scripts/verify-postgres-repository.sh
 bash -n scripts/verify-postgres-schema.sh
 bash -n docker/postgres/init/001-create-connect-app-role.sh
@@ -287,6 +290,23 @@ if grep -En 'OFFSET|message_identities|client_message_ref|idempotency_key|payloa
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/persistence/DurableMessageHistoryRepository.kt; then
     printf 'CI_STATIC_CONTRACT=FAIL\n' >&2
     printf 'ERROR=CONNECT_B6_MESSAGE_HISTORY_CONTRACT_MISMATCH\n' >&2
+    exit 20
+fi
+
+if grep -En 'route\(|webSocket|WebSocket|/messages|/conversations' \
+    src/postgresIntegrationTest/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresDurableRestartRecoveryIntegrationTest.kt ||
+    grep -En 'compose[[:space:]]+down|down[[:space:]].*--volumes' \
+        scripts/verify-durable-restart-recovery.sh ||
+    ! grep -Fq 'run_recovery_phase SEED' scripts/verify-durable-restart-recovery.sh ||
+    ! grep -Fq 'run_recovery_phase VERIFY' scripts/verify-durable-restart-recovery.sh ||
+    ! grep -Fq 'compose rm --force app postgres' scripts/verify-durable-restart-recovery.sh ||
+    ! grep -Fq 'DURABLE_STATE_HASH_PRESERVED=PASS' scripts/verify-durable-restart-recovery.sh ||
+    ! grep -Fq 'DurableTextRepositoryResult.ReplayExisting' \
+        src/postgresIntegrationTest/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresDurableRestartRecoveryIntegrationTest.kt ||
+    ! grep -Fq 'ConversationCreationResult.Existing' \
+        src/postgresIntegrationTest/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresDurableRestartRecoveryIntegrationTest.kt; then
+    printf 'CI_STATIC_CONTRACT=FAIL\n' >&2
+    printf 'ERROR=CONNECT_B7_DURABLE_RESTART_RECOVERY_CONTRACT_MISMATCH\n' >&2
     exit 20
 fi
 printf 'CI_STATIC_CONTRACT=PASS\n'
@@ -396,6 +416,9 @@ printf 'POSTGRES_SCHEMA_CONTRACT=PASS\n'
 
 ./scripts/verify-postgres-repository.sh
 printf 'POSTGRES_REPOSITORY_CONTRACT=PASS\n'
+
+./scripts/verify-durable-restart-recovery.sh
+printf 'DURABLE_RESTART_RECOVERY_CONTRACT=PASS\n'
 
 ./scripts/verify-database-lifecycle.sh
 printf 'DATABASE_LIFECYCLE_CONTRACT=PASS\n'
