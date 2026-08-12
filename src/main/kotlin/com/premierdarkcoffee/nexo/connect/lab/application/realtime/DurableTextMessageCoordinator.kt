@@ -61,7 +61,7 @@ class DurableTextMessageCoordinator(
                 acceptedAtServer = acceptedAtServer,
             )
 
-        return lockFor(request.conversationRef).withLock {
+        return synchronizeConversation(request.conversationRef) {
             val result = withContext(Dispatchers.IO) { repository.persist(writeRequest) }
             if (result is DurableTextRepositoryResult.Committed) {
                 val event =
@@ -85,6 +85,11 @@ class DurableTextMessageCoordinator(
             result
         }
     }
+
+    suspend fun <T> synchronizeConversation(
+        conversationRef: String,
+        block: suspend () -> T,
+    ): T = lockFor(conversationRef).withLock { block() }
 
     private fun lockFor(conversationRef: String): Mutex {
         val index = (conversationRef.hashCode().ushr(1)) % conversationLocks.size

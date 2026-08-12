@@ -117,6 +117,7 @@ required_files=(
     scripts/verify-authorized-conversation-subscriptions.sh
     scripts/verify-database-lifecycle.sh
     scripts/verify-durable-message-created-events.sh
+    scripts/verify-durable-catch-up-resync.sh
     scripts/verify-durable-restart-recovery.sh
     scripts/verify-postgres-repository.sh
     scripts/verify-postgres-schema.sh
@@ -126,6 +127,7 @@ required_files=(
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/ConversationSubscriptionAuthorizer.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/AuthorizedConversationEventHub.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/DurableTextMessageCoordinator.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/DurableConversationCatchUp.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/realtime/RealtimeTransport.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/DurableTextMessageRoutes.kt
@@ -158,6 +160,8 @@ required_files=(
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/AuthorizedConversationEventHubTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/DurableTextMessageCoordinatorTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/DurableMessageCreatedEventTest.kt
+    src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/DurableConversationCatchUpTest.kt
+    src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeCatchUpRuntimeTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/identity/SyntheticRealtimeIdentityRegistryTest.kt
 )
 
@@ -248,6 +252,7 @@ bash -n scripts/verify-authenticated-websocket.sh
 bash -n scripts/verify-authorized-conversation-subscriptions.sh
 bash -n scripts/verify-database-lifecycle.sh
 bash -n scripts/verify-durable-message-created-events.sh
+bash -n scripts/verify-durable-catch-up-resync.sh
 bash -n scripts/verify-durable-restart-recovery.sh
 bash -n scripts/verify-postgres-repository.sh
 bash -n scripts/verify-postgres-schema.sh
@@ -421,6 +426,28 @@ if ! grep -Fq 'post("/v1/conversations/{conversationRef}/messages")' \
     printf 'ERROR=CONNECT_C3_DURABLE_MESSAGE_CREATED_CONTRACT_MISMATCH\n' >&2
     exit 20
 fi
+
+if ! grep -Fq 'val afterSequence: Long? = null' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/RealtimeProtocol.kt ||
+    ! grep -Fq 'CONVERSATION_SYNCED' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/RealtimeProtocol.kt ||
+    ! grep -Fq 'synchronizeConversation(conversationRef)' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt ||
+    ! grep -Fq 'DurableConversationCatchUpResult.Loaded' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt ||
+    ! grep -Fq 'PostgresDurableMessageHistoryRepository(dataSource)' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresDatabaseLifecycle.kt ||
+    ! grep -Fq 'events.size > maxCatchUpMessages' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/DurableConversationCatchUp.kt ||
+    ! grep -Fq 'DURABLE_CURRENT_CURSOR_DUPLICATE=0' \
+        scripts/verify-durable-catch-up-resync.sh ||
+    grep -REn '(Jedis|Lettuce|RedisClient|redis://)' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/DurableConversationCatchUp.kt \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt; then
+    printf 'CI_STATIC_CONTRACT=FAIL\n' >&2
+    printf 'ERROR=CONNECT_C4_DURABLE_CATCH_UP_CONTRACT_MISMATCH\n' >&2
+    exit 20
+fi
 printf 'CI_STATIC_CONTRACT=PASS\n'
 
 if [[ -e "$ENV_FILE" || -L "$ENV_FILE" ]]; then
@@ -545,6 +572,9 @@ printf 'AUTHORIZED_CONVERSATION_SUBSCRIPTION_CONTRACT=PASS\n'
 
 ./scripts/verify-durable-message-created-events.sh
 printf 'DURABLE_MESSAGE_CREATED_CONTRACT=PASS\n'
+
+./scripts/verify-durable-catch-up-resync.sh
+printf 'DURABLE_CATCH_UP_RESYNC_CONTRACT=PASS\n'
 
 ./scripts/verify-postgres-schema.sh
 printf 'POSTGRES_SCHEMA_CONTRACT=PASS\n'

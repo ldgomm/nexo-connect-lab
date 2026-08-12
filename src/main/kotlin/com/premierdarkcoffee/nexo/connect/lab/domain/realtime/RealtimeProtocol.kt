@@ -22,6 +22,7 @@ object ServerRealtimeFrameType {
     const val ERROR = "ERROR"
     const val PONG = "PONG"
     const val CONVERSATION_SUBSCRIBED = "CONVERSATION_SUBSCRIBED"
+    const val CONVERSATION_SYNCED = "CONVERSATION_SYNCED"
     const val MESSAGE_CREATED = "MESSAGE_CREATED"
 }
 
@@ -32,6 +33,7 @@ data class ClientRealtimeFrame(
     val eventId: String,
     val correlationId: String? = null,
     val conversationRef: String? = null,
+    val afterSequence: Long? = null,
 )
 
 @Serializable
@@ -68,6 +70,7 @@ data class ServerRealtimeFrame(
     val error: RealtimeProtocolError? = null,
     val conversationRef: String? = null,
     val lastMessageSequence: Long? = null,
+    val replayedMessageCount: Int? = null,
     val message: RealtimeMessageCreatedPayload? = null,
 )
 
@@ -104,12 +107,20 @@ fun ClientRealtimeFrame.validateEnvelope(): ClientRealtimeFrameValidation {
             ) {
                 return ClientRealtimeFrameValidation.Invalid("INVALID_CONVERSATION_REF")
             }
+            if (afterSequence?.let { it < 0 } == true) {
+                return ClientRealtimeFrameValidation.Invalid("INVALID_RESUME_SEQUENCE")
+            }
         }
 
         ClientRealtimeFrameType.AUTH,
         ClientRealtimeFrameType.PING,
-        -> if (conversationRef != null) {
-            return ClientRealtimeFrameValidation.Invalid("UNEXPECTED_CONVERSATION_REF")
+        -> {
+            if (conversationRef != null) {
+                return ClientRealtimeFrameValidation.Invalid("UNEXPECTED_CONVERSATION_REF")
+            }
+            if (afterSequence != null) {
+                return ClientRealtimeFrameValidation.Invalid("UNEXPECTED_RESUME_SEQUENCE")
+            }
         }
     }
     return ClientRealtimeFrameValidation.Valid

@@ -5,12 +5,15 @@ import com.premierdarkcoffee.nexo.connect.lab.backend.realtime.REALTIME_AUTH_PRO
 import com.premierdarkcoffee.nexo.connect.lab.backend.realtime.authenticatedRealtimeRuntime
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.AuthorizeConversationSubscriptionRequest
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.ConversationSubscriptionAuthorizationResult
+import com.premierdarkcoffee.nexo.connect.lab.application.realtime.DurableConversationCatchUpResult
+import com.premierdarkcoffee.nexo.connect.lab.application.realtime.LoadDurableConversationCatchUpRequest
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.MessageCreatedEventSink
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.RealtimeConnectionRegistration
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.AuthenticatedRealtimeSubject
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.ClientRealtimeFrame
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.ClientRealtimeFrameType
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.ClientRealtimeFrameValidation
+import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.DurableMessageCreatedEvent
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.RealtimeProtocol
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.RealtimeProtocolError
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.RealtimeMessageCreatedPayload
@@ -50,25 +53,7 @@ fun Route.authenticatedRealtimeRoutes(application: Application) {
                     principal = authenticated.connectPrincipal,
                     sink =
                         MessageCreatedEventSink { event ->
-                            sendServerFrame(
-                                runtime,
-                                ServerRealtimeFrame(
-                                    type = ServerRealtimeFrameType.MESSAGE_CREATED,
-                                    eventId = runtime.eventIdFactory(),
-                                    serverTimestamp = runtime.clock.instant().toString(),
-                                    conversationRef = event.conversationRef,
-                                    message =
-                                        RealtimeMessageCreatedPayload(
-                                            serverMessageRef = event.serverMessageRef,
-                                            sequence = event.sequence.value,
-                                            senderSubjectRef = event.senderSubjectRef,
-                                            senderActorType = event.senderActorType.name,
-                                            messageType = "TEXT",
-                                            body = event.body.value,
-                                            acceptedAtServer = event.acceptedAtServer.toString(),
-                                        ),
-                                ),
-                            )
+                            sendMessageCreated(runtime, event)
                         },
                 )
 
@@ -189,45 +174,27 @@ private suspend fun DefaultWebSocketServerSession.subscribeConversation(
     frame: ClientRealtimeFrame,
 ) {
     val conversationRef = checkNotNull(frame.conversationRef)
-    val authorization =
-        try {
-            withContext(Dispatchers.IO) {
-                runtime.conversationSubscriptionAuthorizer.authorize(
-                    AuthorizeConversationSubscriptionRequest(
-                        principal = authenticated.connectPrincipal,
-                        conversationRef = conversationRef,
-                    ),
-                )
-            }
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: Exception) {
-            ConversationSubscriptionAuthorizationResult.Unavailable
-        }
+    if (frame.afterSequence != null) {
+        subscribeConversationWithCatchUp(
+            runtime = runtime,
+            authenticated = authenticated,
+            registration = registration,
+            subscribedConversationRefs = subscribedConversationRefs,
+            frame = frame,
+        )
+        return
+    }
 
-    when (authorization) {
+    when (val authorization = authorizeConversation(runtime, authenticated, conversationRef)) {
         is ConversationSubscriptionAuthorizationResult.Authorized -> {
-            if (
-                conversationRef !in subscribedConversationRefs &&
-                subscribedConversationRefs.size >= runtime.maxConversationSubscriptions
-            ) {
+            if (!hasSubscriptionCapacity(runtime, subscribedConversationRefs, conversationRef)) {
                 sendProtocolError(runtime, "SUBSCRIPTION_LIMIT_REACHED", false, frame.correlationId)
                 return
             }
 
             subscribedConversationRefs += conversationRef
             runtime.conversationEventHub.subscribe(registration, conversationRef)
-            sendServerFrame(
-                runtime,
-                ServerRealtimeFrame(
-                    type = ServerRealtimeFrameType.CONVERSATION_SUBSCRIBED,
-                    eventId = runtime.eventIdFactory(),
-                    serverTimestamp = runtime.clock.instant().toString(),
-                    correlationId = frame.correlationId ?: frame.eventId,
-                    conversationRef = authorization.conversationRef,
-                    lastMessageSequence = authorization.lastMessageSequence,
-                ),
-            )
+            sendConversationSubscribed(runtime, frame, authorization)
         }
 
         ConversationSubscriptionAuthorizationResult.NotFoundOrDenied ->
@@ -236,6 +203,163 @@ private suspend fun DefaultWebSocketServerSession.subscribeConversation(
         ConversationSubscriptionAuthorizationResult.Unavailable ->
             sendProtocolError(runtime, "SUBSCRIPTION_SERVICE_UNAVAILABLE", true, frame.correlationId)
     }
+}
+
+private suspend fun DefaultWebSocketServerSession.subscribeConversationWithCatchUp(
+    runtime: com.premierdarkcoffee.nexo.connect.lab.backend.realtime.AuthenticatedRealtimeRuntime,
+    authenticated: AuthenticatedConnectPrincipal,
+    registration: RealtimeConnectionRegistration,
+    subscribedConversationRefs: MutableSet<String>,
+    frame: ClientRealtimeFrame,
+) {
+    val conversationRef = checkNotNull(frame.conversationRef)
+    val afterSequence = checkNotNull(frame.afterSequence)
+    val coordinator = runtime.durableTextMessageCoordinator
+    val catchUp = runtime.durableConversationCatchUp
+    if (coordinator == null || catchUp == null) {
+        sendProtocolError(runtime, "CATCH_UP_SERVICE_UNAVAILABLE", true, frame.correlationId)
+        return
+    }
+
+    coordinator.synchronizeConversation(conversationRef) {
+        when (val authorization = authorizeConversation(runtime, authenticated, conversationRef)) {
+            is ConversationSubscriptionAuthorizationResult.Authorized -> {
+                if (!hasSubscriptionCapacity(runtime, subscribedConversationRefs, conversationRef)) {
+                    sendProtocolError(runtime, "SUBSCRIPTION_LIMIT_REACHED", false, frame.correlationId)
+                    return@synchronizeConversation
+                }
+                if (afterSequence > authorization.lastMessageSequence) {
+                    sendProtocolError(runtime, "INVALID_RESUME_SEQUENCE", false, frame.correlationId)
+                    return@synchronizeConversation
+                }
+
+                val result =
+                    try {
+                        withContext(Dispatchers.IO) {
+                            catchUp.load(
+                                LoadDurableConversationCatchUpRequest(
+                                    principal = authenticated.connectPrincipal,
+                                    conversationRef = conversationRef,
+                                    afterSequence = afterSequence,
+                                    snapshotLastMessageSequence = authorization.lastMessageSequence,
+                                ),
+                            )
+                        }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        null
+                    }
+
+                when (result) {
+                    is DurableConversationCatchUpResult.Loaded -> {
+                        sendConversationSubscribed(runtime, frame, authorization)
+                        result.events.forEach { event -> sendMessageCreated(runtime, event) }
+                        subscribedConversationRefs += conversationRef
+                        runtime.conversationEventHub.subscribe(registration, conversationRef)
+                        sendServerFrame(
+                            runtime,
+                            ServerRealtimeFrame(
+                                type = ServerRealtimeFrameType.CONVERSATION_SYNCED,
+                                eventId = runtime.eventIdFactory(),
+                                serverTimestamp = runtime.clock.instant().toString(),
+                                correlationId = frame.correlationId ?: frame.eventId,
+                                conversationRef = conversationRef,
+                                lastMessageSequence = result.snapshotLastMessageSequence,
+                                replayedMessageCount = result.events.size,
+                            ),
+                        )
+                    }
+
+                    DurableConversationCatchUpResult.NotFoundOrDenied ->
+                        sendProtocolError(runtime, "CONVERSATION_NOT_FOUND_OR_DENIED", false, frame.correlationId)
+
+                    DurableConversationCatchUpResult.WindowExceeded ->
+                        sendProtocolError(runtime, "CATCH_UP_WINDOW_EXCEEDED", false, frame.correlationId)
+
+                    null ->
+                        sendProtocolError(runtime, "CATCH_UP_SERVICE_UNAVAILABLE", true, frame.correlationId)
+                }
+            }
+
+            ConversationSubscriptionAuthorizationResult.NotFoundOrDenied ->
+                sendProtocolError(runtime, "CONVERSATION_NOT_FOUND_OR_DENIED", false, frame.correlationId)
+
+            ConversationSubscriptionAuthorizationResult.Unavailable ->
+                sendProtocolError(runtime, "SUBSCRIPTION_SERVICE_UNAVAILABLE", true, frame.correlationId)
+        }
+    }
+}
+
+private suspend fun authorizeConversation(
+    runtime: com.premierdarkcoffee.nexo.connect.lab.backend.realtime.AuthenticatedRealtimeRuntime,
+    authenticated: AuthenticatedConnectPrincipal,
+    conversationRef: String,
+): ConversationSubscriptionAuthorizationResult =
+    try {
+        withContext(Dispatchers.IO) {
+            runtime.conversationSubscriptionAuthorizer.authorize(
+                AuthorizeConversationSubscriptionRequest(
+                    principal = authenticated.connectPrincipal,
+                    conversationRef = conversationRef,
+                ),
+            )
+        }
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        ConversationSubscriptionAuthorizationResult.Unavailable
+    }
+
+private fun hasSubscriptionCapacity(
+    runtime: com.premierdarkcoffee.nexo.connect.lab.backend.realtime.AuthenticatedRealtimeRuntime,
+    subscribedConversationRefs: Set<String>,
+    conversationRef: String,
+): Boolean =
+    conversationRef in subscribedConversationRefs ||
+        subscribedConversationRefs.size < runtime.maxConversationSubscriptions
+
+private suspend fun DefaultWebSocketServerSession.sendConversationSubscribed(
+    runtime: com.premierdarkcoffee.nexo.connect.lab.backend.realtime.AuthenticatedRealtimeRuntime,
+    frame: ClientRealtimeFrame,
+    authorization: ConversationSubscriptionAuthorizationResult.Authorized,
+) {
+    sendServerFrame(
+        runtime,
+        ServerRealtimeFrame(
+            type = ServerRealtimeFrameType.CONVERSATION_SUBSCRIBED,
+            eventId = runtime.eventIdFactory(),
+            serverTimestamp = runtime.clock.instant().toString(),
+            correlationId = frame.correlationId ?: frame.eventId,
+            conversationRef = authorization.conversationRef,
+            lastMessageSequence = authorization.lastMessageSequence,
+        ),
+    )
+}
+
+private suspend fun DefaultWebSocketServerSession.sendMessageCreated(
+    runtime: com.premierdarkcoffee.nexo.connect.lab.backend.realtime.AuthenticatedRealtimeRuntime,
+    event: DurableMessageCreatedEvent,
+) {
+    sendServerFrame(
+        runtime,
+        ServerRealtimeFrame(
+            type = ServerRealtimeFrameType.MESSAGE_CREATED,
+            eventId = runtime.eventIdFactory(),
+            serverTimestamp = runtime.clock.instant().toString(),
+            conversationRef = event.conversationRef,
+            message =
+                RealtimeMessageCreatedPayload(
+                    serverMessageRef = event.serverMessageRef,
+                    sequence = event.sequence.value,
+                    senderSubjectRef = event.senderSubjectRef,
+                    senderActorType = event.senderActorType.name,
+                    messageType = "TEXT",
+                    body = event.body.value,
+                    acceptedAtServer = event.acceptedAtServer.toString(),
+                ),
+        ),
+    )
 }
 
 private suspend fun DefaultWebSocketServerSession.closeWithError(
