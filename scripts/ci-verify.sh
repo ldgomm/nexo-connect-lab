@@ -118,21 +118,27 @@ required_files=(
     scripts/verify-database-lifecycle.sh
     scripts/verify-durable-message-created-events.sh
     scripts/verify-durable-catch-up-resync.sh
+    scripts/verify-durable-receipts.sh
     scripts/verify-durable-restart-recovery.sh
     scripts/verify-postgres-repository.sh
     scripts/verify-postgres-schema.sh
     settings.gradle.kts
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/persistence/ConversationRepository.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/persistence/DurableMessageHistoryRepository.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/persistence/DurableReceiptCursorRepository.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/ConversationSubscriptionAuthorizer.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/AuthorizedConversationEventHub.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/DurableTextMessageCoordinator.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/DurableConversationCatchUp.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/DurableReceiptCursorService.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/realtime/RealtimeTransport.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/DurableTextMessageRoutes.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/RealtimeProtocol.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/DurableMessageCreatedEvent.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/DurableReceiptCursor.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresDurableReceiptCursorRepository.kt
+    src/main/resources/db/migration/V5__durable_receipt_cursors.sql
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/conversation/DurableConversationListing.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/conversation/CreateBusinessClientConversationCommand.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/conversation/DurableConversationSnapshot.kt
@@ -162,6 +168,8 @@ required_files=(
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/DurableMessageCreatedEventTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/DurableConversationCatchUpTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeCatchUpRuntimeTest.kt
+    src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeReceiptRuntimeTest.kt
+    src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/DurableReceiptCursorTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/identity/SyntheticRealtimeIdentityRegistryTest.kt
 )
 
@@ -253,6 +261,7 @@ bash -n scripts/verify-authorized-conversation-subscriptions.sh
 bash -n scripts/verify-database-lifecycle.sh
 bash -n scripts/verify-durable-message-created-events.sh
 bash -n scripts/verify-durable-catch-up-resync.sh
+bash -n scripts/verify-durable-receipts.sh
 bash -n scripts/verify-durable-restart-recovery.sh
 bash -n scripts/verify-postgres-repository.sh
 bash -n scripts/verify-postgres-schema.sh
@@ -260,12 +269,29 @@ bash -n docker/postgres/init/001-create-connect-app-role.sh
 bash -n scripts/ci-verify.sh
 git diff --check
 
-if [[ "$(find src/main/resources/db/migration -maxdepth 1 -type f -name 'V*__*.sql' | wc -l | tr -d '[:space:]')" != "4" ]] ||
-    find src/main/resources/db/migration -maxdepth 1 -type f -name 'V5__*.sql' -print -quit | grep -q .; then
+CONNECT_C5_MIGRATION_DIRECTORY="src/main/resources/db/migration"
+CONNECT_C5_MIGRATION_FILE_COUNT="$(
+    find "$CONNECT_C5_MIGRATION_DIRECTORY" -maxdepth 1 -type f -name 'V*__*.sql' -print |
+        wc -l |
+        tr -d '[:space:]'
+)"
+CONNECT_C5_V1_COUNT="$(find "$CONNECT_C5_MIGRATION_DIRECTORY" -maxdepth 1 -type f -name 'V1__*.sql' -print | wc -l | tr -d '[:space:]')"
+CONNECT_C5_V2_COUNT="$(find "$CONNECT_C5_MIGRATION_DIRECTORY" -maxdepth 1 -type f -name 'V2__*.sql' -print | wc -l | tr -d '[:space:]')"
+CONNECT_C5_V3_COUNT="$(find "$CONNECT_C5_MIGRATION_DIRECTORY" -maxdepth 1 -type f -name 'V3__*.sql' -print | wc -l | tr -d '[:space:]')"
+CONNECT_C5_V4_COUNT="$(find "$CONNECT_C5_MIGRATION_DIRECTORY" -maxdepth 1 -type f -name 'V4__*.sql' -print | wc -l | tr -d '[:space:]')"
+CONNECT_C5_V5_COUNT="$(find "$CONNECT_C5_MIGRATION_DIRECTORY" -maxdepth 1 -type f -name 'V5__*.sql' -print | wc -l | tr -d '[:space:]')"
+if [[ "$CONNECT_C5_MIGRATION_FILE_COUNT" != "5" ]] ||
+    [[ "$CONNECT_C5_V1_COUNT" != "1" ]] ||
+    [[ "$CONNECT_C5_V2_COUNT" != "1" ]] ||
+    [[ "$CONNECT_C5_V3_COUNT" != "1" ]] ||
+    [[ "$CONNECT_C5_V4_COUNT" != "1" ]] ||
+    [[ "$CONNECT_C5_V5_COUNT" != "1" ]] ||
+    [[ ! -f "$CONNECT_C5_MIGRATION_DIRECTORY/V5__durable_receipt_cursors.sql" ]]; then
     printf 'CI_STATIC_CONTRACT=FAIL\n' >&2
-    printf 'ERROR=CONNECT_B6_MIGRATION_SET_MISMATCH\n' >&2
+    printf 'ERROR=CONNECT_C5_MIGRATION_SET_MISMATCH\n' >&2
     exit 20
 fi
+CONNECT_C5_MIGRATION_SET=EXACT_V1_TO_V5
 
 if grep -En 'route\(|webSocket|WebSocket|/messages|/conversations' \
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/persistence/ConversationRepository.kt \
@@ -353,7 +379,7 @@ if ! grep -Fq 'io.ktor:ktor-version-catalog:3.5.2' settings.gradle.kts ||
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/RealtimeProtocol.kt ||
     ! grep -Fq 'BINARY_FRAMES_UNSUPPORTED' \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt ||
-    grep -En 'ACK_DELIVERY|UPDATE_READ_CURSOR|TYPING_(START|STOP)|PRESENCE_CHANGED|RESYNC_REQUIRED' \
+    grep -En 'TYPING_(START|STOP)|PRESENCE_CHANGED|RESYNC_REQUIRED' \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/realtime/RealtimeTransport.kt \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/RealtimeProtocol.kt ||
@@ -382,7 +408,7 @@ if ! grep -Fq 'ClientRealtimeFrameType.SUBSCRIBE_CONVERSATION' \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt ||
     ! grep -Fq 'MAX_CONVERSATION_SUBSCRIPTIONS = 100' \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/RealtimeProtocol.kt ||
-    grep -En 'ACK_DELIVERY|UPDATE_READ_CURSOR|TYPING_(START|STOP)|PRESENCE_CHANGED|RESYNC_REQUIRED' \
+    grep -En 'TYPING_(START|STOP)|PRESENCE_CHANGED|RESYNC_REQUIRED' \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/ConversationSubscriptionAuthorizer.kt \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/realtime/RealtimeTransport.kt \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt \
@@ -408,7 +434,7 @@ if ! grep -Fq 'post("/v1/conversations/{conversationRef}/messages")' \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/AuthorizedConversationEventHub.kt ||
     ! grep -Fq 'DurableTextRepositoryResult.ReplayExisting' \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/DurableTextMessageRoutes.kt ||
-    grep -En 'ACK_DELIVERY|UPDATE_READ_CURSOR|TYPING_(START|STOP)|PRESENCE_CHANGED|RESYNC_REQUIRED' \
+    grep -En 'TYPING_(START|STOP)|PRESENCE_CHANGED|RESYNC_REQUIRED' \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/AuthorizedConversationEventHub.kt \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/DurableTextMessageCoordinator.kt \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/realtime/RealtimeTransport.kt \
@@ -446,6 +472,27 @@ if ! grep -Fq 'val afterSequence: Long? = null' \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt; then
     printf 'CI_STATIC_CONTRACT=FAIL\n' >&2
     printf 'ERROR=CONNECT_C4_DURABLE_CATCH_UP_CONTRACT_MISMATCH\n' >&2
+    exit 20
+fi
+
+if ! grep -Fq 'const val ACK_DELIVERY = "ACK_DELIVERY"' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/RealtimeProtocol.kt ||
+    ! grep -Fq 'const val UPDATE_READ_CURSOR = "UPDATE_READ_CURSOR"' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/RealtimeProtocol.kt ||
+    ! grep -Fq 'GREATEST(' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresDurableReceiptCursorRepository.kt ||
+    ! grep -Fq 'highest_read_sequence <= highest_delivered_sequence' \
+        src/main/resources/db/migration/V5__durable_receipt_cursors.sql ||
+    ! grep -Fq 'publishReceipt(event, excludedRegistration = registration)' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt ||
+    ! grep -Fq 'DURABLE_RECEIPT_RECONNECT_SNAPSHOT=PASS' \
+        scripts/verify-durable-receipts.sh ||
+    grep -REn '(Jedis|Lettuce|RedisClient|redis://|TYPING_START|TYPING_STOP|PRESENCE_CHANGED)' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/DurableReceiptCursorService.kt \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresDurableReceiptCursorRepository.kt \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt; then
+    printf 'CI_STATIC_CONTRACT=FAIL\n' >&2
+    printf 'ERROR=CONNECT_C5_DURABLE_RECEIPT_CONTRACT_MISMATCH\n' >&2
     exit 20
 fi
 printf 'CI_STATIC_CONTRACT=PASS\n'
@@ -575,6 +622,9 @@ printf 'DURABLE_MESSAGE_CREATED_CONTRACT=PASS\n'
 
 ./scripts/verify-durable-catch-up-resync.sh
 printf 'DURABLE_CATCH_UP_RESYNC_CONTRACT=PASS\n'
+
+./scripts/verify-durable-receipts.sh
+printf 'DURABLE_RECEIPT_CONTRACT=PASS\n'
 
 ./scripts/verify-postgres-schema.sh
 printf 'POSTGRES_SCHEMA_CONTRACT=PASS\n'

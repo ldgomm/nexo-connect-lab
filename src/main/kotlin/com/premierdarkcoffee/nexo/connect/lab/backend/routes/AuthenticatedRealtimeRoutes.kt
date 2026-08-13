@@ -9,14 +9,22 @@ import com.premierdarkcoffee.nexo.connect.lab.application.realtime.DurableConver
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.LoadDurableConversationCatchUpRequest
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.MessageCreatedEventSink
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.RealtimeConnectionRegistration
+import com.premierdarkcoffee.nexo.connect.lab.application.realtime.ReceiptCursorEventSink
+import com.premierdarkcoffee.nexo.connect.lab.application.persistence.AdvanceDurableReceiptCursorRequest
+import com.premierdarkcoffee.nexo.connect.lab.application.persistence.AdvanceDurableReceiptCursorResult
+import com.premierdarkcoffee.nexo.connect.lab.application.persistence.DurableReceiptAdvance
+import com.premierdarkcoffee.nexo.connect.lab.application.persistence.LoadDurableReceiptCursorsRequest
+import com.premierdarkcoffee.nexo.connect.lab.application.persistence.LoadDurableReceiptCursorsResult
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.AuthenticatedRealtimeSubject
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.ClientRealtimeFrame
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.ClientRealtimeFrameType
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.ClientRealtimeFrameValidation
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.DurableMessageCreatedEvent
+import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.DurableReceiptCursorEvent
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.RealtimeProtocol
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.RealtimeProtocolError
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.RealtimeMessageCreatedPayload
+import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.RealtimeReceiptCursorPayload
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.ServerRealtimeFrame
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.ServerRealtimeFrameType
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.validateEnvelope
@@ -54,6 +62,10 @@ fun Route.authenticatedRealtimeRoutes(application: Application) {
                     sink =
                         MessageCreatedEventSink { event ->
                             sendMessageCreated(runtime, event)
+                        },
+                    receiptSink =
+                        ReceiptCursorEventSink { event ->
+                            sendReceiptCursor(runtime, event)
                         },
                 )
 
@@ -161,6 +173,26 @@ private suspend fun DefaultWebSocketServerSession.handleClientFrame(
                 frame = frame,
             )
 
+        ClientRealtimeFrameType.ACK_DELIVERY ->
+            advanceReceiptCursor(
+                runtime = runtime,
+                authenticated = authenticated,
+                registration = registration,
+                subscribedConversationRefs = subscribedConversationRefs,
+                frame = frame,
+                advance = DurableReceiptAdvance.DELIVERY,
+            )
+
+        ClientRealtimeFrameType.UPDATE_READ_CURSOR ->
+            advanceReceiptCursor(
+                runtime = runtime,
+                authenticated = authenticated,
+                registration = registration,
+                subscribedConversationRefs = subscribedConversationRefs,
+                frame = frame,
+                advance = DurableReceiptAdvance.READ,
+            )
+
         else ->
             sendProtocolError(runtime, "UNSUPPORTED_FRAME_TYPE", false, frame.correlationId)
     }
@@ -255,6 +287,16 @@ private suspend fun DefaultWebSocketServerSession.subscribeConversationWithCatch
                     is DurableConversationCatchUpResult.Loaded -> {
                         sendConversationSubscribed(runtime, frame, authorization)
                         result.events.forEach { event -> sendMessageCreated(runtime, event) }
+                        if (
+                            !sendDurableReceiptSnapshot(
+                                runtime = runtime,
+                                authenticated = authenticated,
+                                conversationRef = conversationRef,
+                                correlationId = frame.correlationId ?: frame.eventId,
+                            )
+                        ) {
+                            return@synchronizeConversation
+                        }
                         subscribedConversationRefs += conversationRef
                         runtime.conversationEventHub.subscribe(registration, conversationRef)
                         sendServerFrame(
@@ -287,6 +329,103 @@ private suspend fun DefaultWebSocketServerSession.subscribeConversationWithCatch
 
             ConversationSubscriptionAuthorizationResult.Unavailable ->
                 sendProtocolError(runtime, "SUBSCRIPTION_SERVICE_UNAVAILABLE", true, frame.correlationId)
+        }
+    }
+}
+
+private suspend fun DefaultWebSocketServerSession.advanceReceiptCursor(
+    runtime: com.premierdarkcoffee.nexo.connect.lab.backend.realtime.AuthenticatedRealtimeRuntime,
+    authenticated: AuthenticatedConnectPrincipal,
+    registration: RealtimeConnectionRegistration,
+    subscribedConversationRefs: Set<String>,
+    frame: ClientRealtimeFrame,
+    advance: DurableReceiptAdvance,
+) {
+    val conversationRef = checkNotNull(frame.conversationRef)
+    val sequence = checkNotNull(frame.receiptSequence)
+    if (conversationRef !in subscribedConversationRefs) {
+        sendProtocolError(runtime, "CONVERSATION_NOT_SUBSCRIBED", false, frame.correlationId)
+        return
+    }
+    val service = runtime.durableReceiptCursorService
+    if (service == null) {
+        sendProtocolError(runtime, "RECEIPT_SERVICE_UNAVAILABLE", true, frame.correlationId)
+        return
+    }
+
+    val result =
+        try {
+            service.advance(
+                AdvanceDurableReceiptCursorRequest(
+                    principal = authenticated.connectPrincipal,
+                    conversationRef = conversationRef,
+                    sequence = sequence,
+                    advance = advance,
+                ),
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        }
+
+    when (result) {
+        is AdvanceDurableReceiptCursorResult.Recorded -> {
+            val event = DurableReceiptCursorEvent(result.cursor)
+            sendReceiptCursor(runtime, event, frame.correlationId ?: frame.eventId)
+            if (result.advanced) {
+                runtime.conversationEventHub.publishReceipt(event, excludedRegistration = registration)
+            }
+        }
+
+        AdvanceDurableReceiptCursorResult.InvalidSequence ->
+            sendProtocolError(runtime, "INVALID_RECEIPT_SEQUENCE", false, frame.correlationId)
+
+        AdvanceDurableReceiptCursorResult.NotFoundOrDenied ->
+            sendProtocolError(runtime, "CONVERSATION_NOT_FOUND_OR_DENIED", false, frame.correlationId)
+
+        null ->
+            sendProtocolError(runtime, "RECEIPT_SERVICE_UNAVAILABLE", true, frame.correlationId)
+    }
+}
+
+private suspend fun DefaultWebSocketServerSession.sendDurableReceiptSnapshot(
+    runtime: com.premierdarkcoffee.nexo.connect.lab.backend.realtime.AuthenticatedRealtimeRuntime,
+    authenticated: AuthenticatedConnectPrincipal,
+    conversationRef: String,
+    correlationId: String,
+): Boolean {
+    val service = runtime.durableReceiptCursorService ?: return true
+    val result =
+        try {
+            service.load(
+                LoadDurableReceiptCursorsRequest(
+                    principal = authenticated.connectPrincipal,
+                    conversationRef = conversationRef,
+                ),
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        }
+
+    return when (result) {
+        is LoadDurableReceiptCursorsResult.Loaded -> {
+            result.cursors.forEach { cursor ->
+                sendReceiptCursor(runtime, DurableReceiptCursorEvent(cursor))
+            }
+            true
+        }
+
+        LoadDurableReceiptCursorsResult.NotFoundOrDenied -> {
+            sendProtocolError(runtime, "CONVERSATION_NOT_FOUND_OR_DENIED", false, correlationId)
+            false
+        }
+
+        null -> {
+            sendProtocolError(runtime, "RECEIPT_SERVICE_UNAVAILABLE", true, correlationId)
+            false
         }
     }
 }
@@ -357,6 +496,35 @@ private suspend fun DefaultWebSocketServerSession.sendMessageCreated(
                     messageType = "TEXT",
                     body = event.body.value,
                     acceptedAtServer = event.acceptedAtServer.toString(),
+                ),
+        ),
+    )
+}
+
+private suspend fun DefaultWebSocketServerSession.sendReceiptCursor(
+    runtime: com.premierdarkcoffee.nexo.connect.lab.backend.realtime.AuthenticatedRealtimeRuntime,
+    event: DurableReceiptCursorEvent,
+    correlationId: String? = null,
+) {
+    val cursor = event.cursor
+    sendServerFrame(
+        runtime,
+        ServerRealtimeFrame(
+            type = ServerRealtimeFrameType.RECEIPT_CURSOR_UPDATED,
+            eventId = runtime.eventIdFactory(),
+            serverTimestamp = runtime.clock.instant().toString(),
+            correlationId = correlationId,
+            conversationRef = cursor.conversationRef,
+            receipt =
+                RealtimeReceiptCursorPayload(
+                    subjectRef = cursor.subjectRef,
+                    actorType = cursor.actorType.name,
+                    highestDeliveredSequence = cursor.highestDeliveredSequence,
+                    highestReadSequence = cursor.highestReadSequence,
+                    deliveredAt = cursor.deliveredAt?.toString(),
+                    readAt = cursor.readAt?.toString(),
+                    updatedAt = cursor.updatedAt.toString(),
+                    version = cursor.version,
                 ),
         ),
     )

@@ -110,6 +110,34 @@ class RealtimeProtocolTest {
     }
 
     @Test
+    fun `accepts positive delivery and read receipt sequences only in conversation context`() {
+        listOf(ClientRealtimeFrameType.ACK_DELIVERY, ClientRealtimeFrameType.UPDATE_READ_CURSOR).forEach { type ->
+            val valid =
+                ClientRealtimeFrame(
+                    protocolMajor = 1,
+                    type = type,
+                    eventId = "event-$type",
+                    conversationRef = "conversation-1",
+                    receiptSequence = 7,
+                ).validateEnvelope()
+            val zero =
+                ClientRealtimeFrame(
+                    protocolMajor = 1,
+                    type = type,
+                    eventId = "event-zero-$type",
+                    conversationRef = "conversation-1",
+                    receiptSequence = 0,
+                ).validateEnvelope()
+
+            assertEquals(ClientRealtimeFrameValidation.Valid, valid)
+            assertEquals(
+                "INVALID_RECEIPT_SEQUENCE",
+                assertIs<ClientRealtimeFrameValidation.Invalid>(zero).code,
+            )
+        }
+    }
+
+    @Test
     fun `rejects missing oversized and unexpected conversation references`() {
         val missing =
             ClientRealtimeFrame(
@@ -194,5 +222,34 @@ class RealtimeProtocolTest {
         assertEquals(ServerRealtimeFrameType.CONVERSATION_SYNCED, decoded.type)
         assertEquals(42L, decoded.lastMessageSequence)
         assertEquals(3, decoded.replayedMessageCount)
+    }
+
+    @Test
+    fun `serializes a monotonic durable receipt cursor`() {
+        val frame =
+            ServerRealtimeFrame(
+                type = ServerRealtimeFrameType.RECEIPT_CURSOR_UPDATED,
+                eventId = "event-receipt-1",
+                serverTimestamp = "2026-08-12T14:20:00Z",
+                conversationRef = "conversation-1",
+                receipt =
+                    RealtimeReceiptCursorPayload(
+                        subjectRef = "client-subject",
+                        actorType = "CLIENT",
+                        highestDeliveredSequence = 9,
+                        highestReadSequence = 7,
+                        deliveredAt = "2026-08-12T14:19:00Z",
+                        readAt = "2026-08-12T14:19:30Z",
+                        updatedAt = "2026-08-12T14:19:30Z",
+                        version = 2,
+                    ),
+            )
+
+        val decoded = Json.decodeFromString<ServerRealtimeFrame>(Json.encodeToString(frame))
+
+        assertEquals(ServerRealtimeFrameType.RECEIPT_CURSOR_UPDATED, decoded.type)
+        assertEquals(9L, decoded.receipt?.highestDeliveredSequence)
+        assertEquals(7L, decoded.receipt?.highestReadSequence)
+        assertEquals(2L, decoded.receipt?.version)
     }
 }

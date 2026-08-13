@@ -15,6 +15,8 @@ object ClientRealtimeFrameType {
     const val AUTH = "AUTH"
     const val PING = "PING"
     const val SUBSCRIBE_CONVERSATION = "SUBSCRIBE_CONVERSATION"
+    const val ACK_DELIVERY = "ACK_DELIVERY"
+    const val UPDATE_READ_CURSOR = "UPDATE_READ_CURSOR"
 }
 
 object ServerRealtimeFrameType {
@@ -24,6 +26,7 @@ object ServerRealtimeFrameType {
     const val CONVERSATION_SUBSCRIBED = "CONVERSATION_SUBSCRIBED"
     const val CONVERSATION_SYNCED = "CONVERSATION_SYNCED"
     const val MESSAGE_CREATED = "MESSAGE_CREATED"
+    const val RECEIPT_CURSOR_UPDATED = "RECEIPT_CURSOR_UPDATED"
 }
 
 @Serializable
@@ -34,6 +37,7 @@ data class ClientRealtimeFrame(
     val correlationId: String? = null,
     val conversationRef: String? = null,
     val afterSequence: Long? = null,
+    val receiptSequence: Long? = null,
 )
 
 @Serializable
@@ -60,6 +64,18 @@ data class RealtimeMessageCreatedPayload(
 )
 
 @Serializable
+data class RealtimeReceiptCursorPayload(
+    val subjectRef: String,
+    val actorType: String,
+    val highestDeliveredSequence: Long,
+    val highestReadSequence: Long,
+    val deliveredAt: String? = null,
+    val readAt: String? = null,
+    val updatedAt: String,
+    val version: Long,
+)
+
+@Serializable
 data class ServerRealtimeFrame(
     val protocolMajor: Int = RealtimeProtocol.MAJOR_VERSION,
     val type: String,
@@ -72,6 +88,7 @@ data class ServerRealtimeFrame(
     val lastMessageSequence: Long? = null,
     val replayedMessageCount: Int? = null,
     val message: RealtimeMessageCreatedPayload? = null,
+    val receipt: RealtimeReceiptCursorPayload? = null,
 )
 
 sealed interface ClientRealtimeFrameValidation {
@@ -110,6 +127,30 @@ fun ClientRealtimeFrame.validateEnvelope(): ClientRealtimeFrameValidation {
             if (afterSequence?.let { it < 0 } == true) {
                 return ClientRealtimeFrameValidation.Invalid("INVALID_RESUME_SEQUENCE")
             }
+            if (receiptSequence != null) {
+                return ClientRealtimeFrameValidation.Invalid("UNEXPECTED_RECEIPT_SEQUENCE")
+            }
+        }
+
+        ClientRealtimeFrameType.ACK_DELIVERY,
+        ClientRealtimeFrameType.UPDATE_READ_CURSOR,
+        -> {
+            val requestedConversationRef = conversationRef
+            if (
+                requestedConversationRef == null ||
+                requestedConversationRef.isBlank() ||
+                '\u0000' in requestedConversationRef ||
+                requestedConversationRef.toByteArray(Charsets.UTF_8).size >
+                RealtimeProtocol.MAX_CONVERSATION_REF_UTF8_BYTES
+            ) {
+                return ClientRealtimeFrameValidation.Invalid("INVALID_CONVERSATION_REF")
+            }
+            if (afterSequence != null) {
+                return ClientRealtimeFrameValidation.Invalid("UNEXPECTED_RESUME_SEQUENCE")
+            }
+            if (receiptSequence == null || receiptSequence <= 0) {
+                return ClientRealtimeFrameValidation.Invalid("INVALID_RECEIPT_SEQUENCE")
+            }
         }
 
         ClientRealtimeFrameType.AUTH,
@@ -120,6 +161,9 @@ fun ClientRealtimeFrame.validateEnvelope(): ClientRealtimeFrameValidation {
             }
             if (afterSequence != null) {
                 return ClientRealtimeFrameValidation.Invalid("UNEXPECTED_RESUME_SEQUENCE")
+            }
+            if (receiptSequence != null) {
+                return ClientRealtimeFrameValidation.Invalid("UNEXPECTED_RECEIPT_SEQUENCE")
             }
         }
     }

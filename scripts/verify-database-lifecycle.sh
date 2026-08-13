@@ -48,7 +48,7 @@ query_scalar() {
         -U "$MIGRATION_USER" -d "$DATABASE_NAME" -tAc "$1" | tr -d '[:space:]'
 }
 
-if [[ "$(query_scalar "SELECT count(*) FROM public.flyway_schema_history WHERE version IN ('1', '2', '3', '4') AND success")" != "4" ]] ||
+if [[ "$(query_scalar "SELECT count(*) FROM public.flyway_schema_history WHERE version IN ('1', '2', '3', '4', '5') AND success")" != "5" ]] ||
     ! compose logs --no-color app 2>&1 | grep -F 'CONNECT_DATABASE_POOL=READY' >/dev/null; then
     printf 'ERROR=APPLICATION_FLYWAY_VALIDATION_EVIDENCE_MISSING\n' >&2
     exit 3
@@ -60,7 +60,7 @@ if [[ "$(query_scalar "SELECT count(*) FROM pg_roles WHERE rolname = '${APP_USER
     exit 4
 fi
 
-if [[ "$(query_scalar "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'connect' AND has_table_privilege('${APP_USER}', quote_ident(table_schema) || '.' || quote_ident(table_name), 'SELECT') AND has_table_privilege('${APP_USER}', quote_ident(table_schema) || '.' || quote_ident(table_name), 'INSERT') AND has_table_privilege('${APP_USER}', quote_ident(table_schema) || '.' || quote_ident(table_name), 'UPDATE')")" != "5" ]] ||
+if [[ "$(query_scalar "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'connect' AND has_table_privilege('${APP_USER}', quote_ident(table_schema) || '.' || quote_ident(table_name), 'SELECT') AND has_table_privilege('${APP_USER}', quote_ident(table_schema) || '.' || quote_ident(table_name), 'INSERT') AND has_table_privilege('${APP_USER}', quote_ident(table_schema) || '.' || quote_ident(table_name), 'UPDATE')")" != "6" ]] ||
     [[ "$(query_scalar "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'connect' AND (has_table_privilege('${APP_USER}', quote_ident(table_schema) || '.' || quote_ident(table_name), 'DELETE') OR has_table_privilege('${APP_USER}', quote_ident(table_schema) || '.' || quote_ident(table_name), 'TRUNCATE') OR has_table_privilege('${APP_USER}', quote_ident(table_schema) || '.' || quote_ident(table_name), 'REFERENCES') OR has_table_privilege('${APP_USER}', quote_ident(table_schema) || '.' || quote_ident(table_name), 'TRIGGER'))")" != "0" ]] ||
     [[ "$(query_scalar "SELECT has_schema_privilege('${APP_USER}', 'connect', 'CREATE')")" != "f" ]] ||
     [[ "$(query_scalar "SELECT has_table_privilege('${APP_USER}', 'public.flyway_schema_history', 'SELECT')")" != "t" ]]; then

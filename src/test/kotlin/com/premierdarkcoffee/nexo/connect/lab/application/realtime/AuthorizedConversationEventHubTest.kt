@@ -5,6 +5,8 @@ import com.premierdarkcoffee.nexo.connect.lab.domain.identity.ConnectPrincipal
 import com.premierdarkcoffee.nexo.connect.lab.domain.message.ConversationSequence
 import com.premierdarkcoffee.nexo.connect.lab.domain.message.TextMessageBody
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.DurableMessageCreatedEvent
+import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.DurableReceiptCursor
+import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.DurableReceiptCursorEvent
 import kotlinx.coroutines.runBlocking
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicInteger
@@ -74,6 +76,49 @@ class AuthorizedConversationEventHubTest {
         assertEquals(listOf(event), delivered)
     }
 
+    @Test
+    fun `receipt publication excludes only the originating registration`() = runBlocking {
+        val hub =
+            AuthorizedConversationEventHub(
+                authorizer =
+                    ConversationSubscriptionAuthorizer { request ->
+                        ConversationSubscriptionAuthorizationResult.Authorized(request.conversationRef, 2)
+                    },
+                registrationRefFactory = sequentialRegistrationRefs(),
+            )
+        val originReceipts = mutableListOf<DurableReceiptCursorEvent>()
+        val secondDeviceReceipts = mutableListOf<DurableReceiptCursorEvent>()
+        val businessReceipts = mutableListOf<DurableReceiptCursorEvent>()
+        val origin =
+            hub.register(
+                principal = clientPrincipal(),
+                sink = MessageCreatedEventSink { },
+                receiptSink = ReceiptCursorEventSink { originReceipts += it },
+            )
+        val secondDevice =
+            hub.register(
+                principal = clientPrincipal(),
+                sink = MessageCreatedEventSink { },
+                receiptSink = ReceiptCursorEventSink { secondDeviceReceipts += it },
+            )
+        val business =
+            hub.register(
+                principal = businessPrincipal(),
+                sink = MessageCreatedEventSink { },
+                receiptSink = ReceiptCursorEventSink { businessReceipts += it },
+            )
+        listOf(origin, secondDevice, business).forEach { hub.subscribe(it, CONVERSATION_REF) }
+        val event = receiptCursorEvent()
+
+        assertEquals(
+            ReceiptCursorPublicationReport(eligibleSubscriptions = 2, deliveredSubscriptions = 2),
+            hub.publishReceipt(event, excludedRegistration = origin),
+        )
+        assertEquals(emptyList(), originReceipts)
+        assertEquals(listOf(event), secondDeviceReceipts)
+        assertEquals(listOf(event), businessReceipts)
+    }
+
     private fun messageCreatedEvent(): DurableMessageCreatedEvent =
         DurableMessageCreatedEvent(
             conversationRef = CONVERSATION_REF,
@@ -83,6 +128,21 @@ class AuthorizedConversationEventHubTest {
             senderActorType = ConnectActorType.BUSINESS,
             body = TextMessageBody("hello"),
             acceptedAtServer = Instant.parse("2026-08-12T09:45:00Z"),
+        )
+
+    private fun receiptCursorEvent(): DurableReceiptCursorEvent =
+        DurableReceiptCursorEvent(
+            DurableReceiptCursor(
+                conversationRef = CONVERSATION_REF,
+                subjectRef = "client-subject",
+                actorType = ConnectActorType.CLIENT,
+                highestDeliveredSequence = 2,
+                highestReadSequence = 1,
+                deliveredAt = Instant.parse("2026-08-12T14:20:00Z"),
+                readAt = Instant.parse("2026-08-12T14:21:00Z"),
+                updatedAt = Instant.parse("2026-08-12T14:21:00Z"),
+                version = 2,
+            ),
         )
 
     private fun businessPrincipal() =

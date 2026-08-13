@@ -2,6 +2,7 @@ package com.premierdarkcoffee.nexo.connect.lab.infrastructure.persistence.postgr
 
 import com.premierdarkcoffee.nexo.connect.lab.application.persistence.ConversationRepository
 import com.premierdarkcoffee.nexo.connect.lab.application.persistence.DurableMessageHistoryRepository
+import com.premierdarkcoffee.nexo.connect.lab.application.persistence.DurableReceiptCursorRepository
 import com.premierdarkcoffee.nexo.connect.lab.application.persistence.DurableTextRepository
 import com.premierdarkcoffee.nexo.connect.lab.infrastructure.config.connectLabConfig
 import com.zaxxer.hikari.HikariDataSource
@@ -50,11 +51,15 @@ private val DurableTextRepositoryKey =
 private val DurableMessageHistoryRepositoryKey =
     AttributeKey<DurableMessageHistoryRepository>("NexoConnectLabDurableMessageHistoryRepository")
 
+private val DurableReceiptCursorRepositoryKey =
+    AttributeKey<DurableReceiptCursorRepository>("NexoConnectLabDurableReceiptCursorRepository")
+
 internal fun Application.installManagedDatabaseRuntime(
     runtime: ManagedDatabaseRuntime,
     conversationRepository: ConversationRepository? = null,
     durableTextRepository: DurableTextRepository? = null,
     durableMessageHistoryRepository: DurableMessageHistoryRepository? = null,
+    durableReceiptCursorRepository: DurableReceiptCursorRepository? = null,
 ) {
     check(databaseReadinessProbeOrNull() == null) { "PostgreSQL database runtime is already installed" }
     attributes.put(DatabaseRuntimeKey, runtime)
@@ -71,6 +76,12 @@ internal fun Application.installManagedDatabaseRuntime(
             "Durable message history repository is already installed"
         }
         attributes.put(DurableMessageHistoryRepositoryKey, repository)
+    }
+    durableReceiptCursorRepository?.let { repository ->
+        check(durableReceiptCursorRepositoryOrNull() == null) {
+            "Durable receipt cursor repository is already installed"
+        }
+        attributes.put(DurableReceiptCursorRepositoryKey, repository)
     }
     monitor.subscribe(ApplicationStopped) {
         runtime.close()
@@ -90,6 +101,9 @@ fun Application.durableTextRepositoryOrNull(): DurableTextRepository? =
 fun Application.durableMessageHistoryRepositoryOrNull(): DurableMessageHistoryRepository? =
     attributes.getOrNull(DurableMessageHistoryRepositoryKey)
 
+fun Application.durableReceiptCursorRepositoryOrNull(): DurableReceiptCursorRepository? =
+    attributes.getOrNull(DurableReceiptCursorRepositoryKey)
+
 fun Application.configurePostgresDatabaseLifecycle() {
     if (!connectLabConfig.databaseLifecycleEnabled) return
 
@@ -108,6 +122,7 @@ fun Application.configurePostgresDatabaseLifecycle() {
             conversationRepository = PostgresConversationRepository(dataSource),
             durableTextRepository = PostgresDurableTextRepository(dataSource),
             durableMessageHistoryRepository = PostgresDurableMessageHistoryRepository(dataSource),
+            durableReceiptCursorRepository = PostgresDurableReceiptCursorRepository(dataSource),
         )
         log.info("CONNECT_DATABASE_POOL=READY")
     } catch (failure: Throwable) {

@@ -5,17 +5,20 @@ import com.premierdarkcoffee.nexo.connect.lab.application.identity.IdentityVerif
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.ConversationSubscriptionAuthorizer
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.AuthorizedConversationEventHub
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.DurableConversationCatchUp
+import com.premierdarkcoffee.nexo.connect.lab.application.realtime.DurableReceiptCursorService
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.DurableTextMessageCoordinator
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.RepositoryConversationSubscriptionAuthorizer
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.UnavailableConversationSubscriptionAuthorizer
 import com.premierdarkcoffee.nexo.connect.lab.application.persistence.DurableTextRepository
 import com.premierdarkcoffee.nexo.connect.lab.application.persistence.DurableMessageHistoryRepository
+import com.premierdarkcoffee.nexo.connect.lab.application.persistence.DurableReceiptCursorRepository
 import com.premierdarkcoffee.nexo.connect.lab.domain.identity.ConnectPrincipal
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.RealtimeProtocol
 import com.premierdarkcoffee.nexo.connect.lab.infrastructure.identity.SyntheticRealtimeIdentityRegistry
 import com.premierdarkcoffee.nexo.connect.lab.infrastructure.persistence.postgres.conversationRepositoryOrNull
 import com.premierdarkcoffee.nexo.connect.lab.infrastructure.persistence.postgres.durableTextRepositoryOrNull
 import com.premierdarkcoffee.nexo.connect.lab.infrastructure.persistence.postgres.durableMessageHistoryRepositoryOrNull
+import com.premierdarkcoffee.nexo.connect.lab.infrastructure.persistence.postgres.durableReceiptCursorRepositoryOrNull
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
 import io.ktor.server.auth.Authentication
@@ -44,6 +47,7 @@ internal class AuthenticatedRealtimeRuntime(
     val conversationEventHub: AuthorizedConversationEventHub,
     val durableTextMessageCoordinator: DurableTextMessageCoordinator?,
     val durableConversationCatchUp: DurableConversationCatchUp?,
+    val durableReceiptCursorService: DurableReceiptCursorService?,
     val maxConversationSubscriptions: Int,
 )
 
@@ -67,6 +71,7 @@ internal fun Application.installAuthenticatedRealtimeTransport(
     conversationSubscriptionAuthorizer: ConversationSubscriptionAuthorizer? = null,
     durableTextRepository: DurableTextRepository? = null,
     durableMessageHistoryRepository: DurableMessageHistoryRepository? = null,
+    durableReceiptCursorRepository: DurableReceiptCursorRepository? = null,
     serverMessageRefFactory: () -> String = { "message-${UUID.randomUUID()}" },
     maxConversationSubscriptions: Int = RealtimeProtocol.MAX_CONVERSATION_SUBSCRIPTIONS,
 ) {
@@ -99,6 +104,13 @@ internal fun Application.installAuthenticatedRealtimeTransport(
         (durableMessageHistoryRepository ?: durableMessageHistoryRepositoryOrNull())?.let {
             DurableConversationCatchUp(it)
         }
+    val durableReceiptCursorService =
+        (durableReceiptCursorRepository ?: durableReceiptCursorRepositoryOrNull())?.let { repository ->
+            DurableReceiptCursorService(
+                repository = repository,
+                messageCoordinator = durableTextMessageCoordinator,
+            )
+        }
 
     attributes.put(
         RealtimeRuntimeKey,
@@ -110,6 +122,7 @@ internal fun Application.installAuthenticatedRealtimeTransport(
             conversationEventHub = conversationEventHub,
             durableTextMessageCoordinator = durableTextMessageCoordinator,
             durableConversationCatchUp = durableConversationCatchUp,
+            durableReceiptCursorService = durableReceiptCursorService,
             maxConversationSubscriptions = maxConversationSubscriptions,
         ),
     )

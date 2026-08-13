@@ -2,6 +2,7 @@ package com.premierdarkcoffee.nexo.connect.lab.application.realtime
 
 import com.premierdarkcoffee.nexo.connect.lab.domain.identity.ConnectPrincipal
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.DurableMessageCreatedEvent
+import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.DurableReceiptCursorEvent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -16,11 +17,20 @@ fun interface MessageCreatedEventSink {
     suspend fun emit(event: DurableMessageCreatedEvent)
 }
 
+fun interface ReceiptCursorEventSink {
+    suspend fun emit(event: DurableReceiptCursorEvent)
+}
+
 data class RealtimeConnectionRegistration(
     val registrationRef: String,
 )
 
 data class MessageCreatedPublicationReport(
+    val eligibleSubscriptions: Int,
+    val deliveredSubscriptions: Int,
+)
+
+data class ReceiptCursorPublicationReport(
     val eligibleSubscriptions: Int,
     val deliveredSubscriptions: Int,
 )
@@ -32,7 +42,8 @@ class AuthorizedConversationEventHub(
     private data class ConnectionState(
         val principal: ConnectPrincipal,
         val subscribedConversationRefs: MutableSet<String>,
-        val sink: MessageCreatedEventSink,
+        val messageSink: MessageCreatedEventSink,
+        val receiptSink: ReceiptCursorEventSink,
     )
 
     private val connections = ConcurrentHashMap<String, ConnectionState>()
@@ -40,6 +51,7 @@ class AuthorizedConversationEventHub(
     fun register(
         principal: ConnectPrincipal,
         sink: MessageCreatedEventSink,
+        receiptSink: ReceiptCursorEventSink = ReceiptCursorEventSink { },
     ): RealtimeConnectionRegistration {
         val registration = RealtimeConnectionRegistration(registrationRefFactory())
         check(
@@ -48,7 +60,8 @@ class AuthorizedConversationEventHub(
                 ConnectionState(
                     principal = principal,
                     subscribedConversationRefs = ConcurrentHashMap.newKeySet(),
-                    sink = sink,
+                    messageSink = sink,
+                    receiptSink = receiptSink,
                 ),
             ) == null,
         ) { "Realtime registration reference collision" }
@@ -95,7 +108,7 @@ class AuthorizedConversationEventHub(
 
             if (authorization is ConversationSubscriptionAuthorizationResult.Authorized) {
                 try {
-                    connection.sink.emit(event)
+                    connection.messageSink.emit(event)
                     delivered += 1
                 } catch (cancelled: CancellationException) {
                     throw cancelled
@@ -108,6 +121,55 @@ class AuthorizedConversationEventHub(
         }
 
         return MessageCreatedPublicationReport(
+            eligibleSubscriptions = candidates.size,
+            deliveredSubscriptions = delivered,
+        )
+    }
+
+    suspend fun publishReceipt(
+        event: DurableReceiptCursorEvent,
+        excludedRegistration: RealtimeConnectionRegistration? = null,
+    ): ReceiptCursorPublicationReport {
+        val conversationRef = event.cursor.conversationRef
+        val candidates =
+            connections.entries.filter { (registrationRef, connection) ->
+                registrationRef != excludedRegistration?.registrationRef &&
+                    conversationRef in connection.subscribedConversationRefs
+            }
+        var delivered = 0
+
+        candidates.forEach { (_, connection) ->
+            val authorization =
+                try {
+                    withContext(Dispatchers.IO) {
+                        authorizer.authorize(
+                            AuthorizeConversationSubscriptionRequest(
+                                principal = connection.principal,
+                                conversationRef = conversationRef,
+                            ),
+                        )
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    ConversationSubscriptionAuthorizationResult.Unavailable
+                }
+
+            if (authorization is ConversationSubscriptionAuthorizationResult.Authorized) {
+                try {
+                    connection.receiptSink.emit(event)
+                    delivered += 1
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // A failed socket must not prevent delivery to other authorised subscribers.
+                }
+            } else {
+                connection.subscribedConversationRefs -= conversationRef
+            }
+        }
+
+        return ReceiptCursorPublicationReport(
             eligibleSubscriptions = candidates.size,
             deliveredSubscriptions = delivered,
         )
