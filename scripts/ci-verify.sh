@@ -109,6 +109,10 @@ required_files=(
     build.gradle.kts
     compose.yaml
     docker/postgres/init/001-create-connect-app-role.sh
+    docs/governance/CONNECT_PHASE_GOVERNANCE.md
+    docs/governance/connect-ownership.properties
+    docs/governance/connect-phase-ledger.tsv
+    docs/governance/connect-phase-policy.properties
     gradlew
     scripts/ci-verify.sh
     scripts/generate-local-env.sh
@@ -123,6 +127,7 @@ required_files=(
     scripts/verify-durable-restart-recovery.sh
     scripts/verify-postgres-repository.sh
     scripts/verify-postgres-schema.sh
+    scripts/verify-phase-governance.sh
     settings.gradle.kts
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/persistence/ConversationRepository.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/persistence/DurableMessageHistoryRepository.kt
@@ -213,6 +218,7 @@ fi
 
 if ! grep -Fqx '    runs-on: ubuntu-24.04' .github/workflows/ci.yml || \
     ! grep -Fqx '        uses: actions/checkout@v4' .github/workflows/ci.yml || \
+    ! grep -Fqx '          fetch-depth: 0' .github/workflows/ci.yml || \
     ! grep -Fqx '          persist-credentials: false' .github/workflows/ci.yml || \
     ! grep -Fqx '        uses: actions/setup-java@v4' .github/workflows/ci.yml || \
     ! grep -Fqx '          distribution: temurin' .github/workflows/ci.yml || \
@@ -269,9 +275,13 @@ bash -n scripts/verify-realtime-transport-hardening.sh
 bash -n scripts/verify-durable-restart-recovery.sh
 bash -n scripts/verify-postgres-repository.sh
 bash -n scripts/verify-postgres-schema.sh
+bash -n scripts/verify-phase-governance.sh
 bash -n docker/postgres/init/001-create-connect-app-role.sh
 bash -n scripts/ci-verify.sh
 git diff --check
+
+./scripts/verify-phase-governance.sh
+printf 'PHASE_GOVERNANCE_CONTRACT=PASS\n'
 
 CONNECT_C5_MIGRATION_DIRECTORY="src/main/resources/db/migration"
 CONNECT_C5_MIGRATION_FILE_COUNT="$(
