@@ -89,6 +89,16 @@ tasks.register<Test>("semanticAcceptanceTest") {
     }
 }
 
+tasks.register<Test>("realtimeCapacityBaselineTest") {
+    description = "Measures the bounded single-instance realtime capacity envelope."
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    filter {
+        includeTestsMatching("*.RealtimeSingleInstanceCapacityRuntimeTest")
+    }
+}
+
 tasks.named("check") {
     dependsOn(tasks.named("spotlessCheck"))
 }

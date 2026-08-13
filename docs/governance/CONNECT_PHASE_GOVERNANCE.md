@@ -5,11 +5,11 @@
 - Programme: `NEXO_CONNECT_LAB`
 - Repository: `connect-lab`
 - Branch: `main`
-- Accepted phase: `CONNECT.08`
-- Accepted HEAD: `7e9e19a72571cfeb55bbd397e1a7adef6281f0ec`
+- Accepted phase: `CONNECT.09`
+- Accepted HEAD: `e13051b9d1f487e1978670bdaf608ead96d66486`
 - Immutable user baseline: `558d702bd5e7729721cde71d0e3080513798dcdd`
-- Active phase: `CONNECT.09`
-- Next phase after acceptance: `CONNECT.10`
+- Active phase: `CONNECT.10`
+- Next phase after acceptance: `CONNECT.11`
 
 `CONNECT.07` is the accepted governance commit `e330359...`; its historical
 subject used the temporary label `[CONNECT.01]`. The hash is preserved and the
@@ -52,6 +52,11 @@ the manual-action prohibition are documented in
 Semantic acceptance authority is documented in
 `docs/governance/SEMANTIC_ACCEPTANCE_GATES.md`. Positive behaviour is proven by
 compiled, database and runtime contracts; source scans are secondary defence.
+
+The `CONNECT.10` capacity contract is documented in
+`docs/performance/CONNECT_10_SINGLE_INSTANCE_CAPACITY.md`. It records a bounded,
+reproducible local envelope and never promotes a workstation measurement into a
+production capacity claim.
 
 The empty `docker-compose.watch.yml` is tracked by the accepted user baseline.
 Later phase commits must preserve it byte-for-byte unless the user explicitly

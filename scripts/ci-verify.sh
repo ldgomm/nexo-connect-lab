@@ -113,6 +113,7 @@ required_files=(
     docs/governance/CONNECT_PHASE_GOVERNANCE.md
     docs/governance/INTELLIJ_FORMATTING.md
     docs/governance/SEMANTIC_ACCEPTANCE_GATES.md
+    docs/performance/CONNECT_10_SINGLE_INSTANCE_CAPACITY.md
     docs/governance/connect-ownership.properties
     docs/governance/connect-phase-ledger.tsv
     docs/governance/connect-phase-policy.properties
@@ -128,6 +129,7 @@ required_files=(
     scripts/verify-durable-catch-up-resync.sh
     scripts/verify-durable-receipts.sh
     scripts/verify-realtime-transport-hardening.sh
+    scripts/verify-realtime-capacity-baseline.sh
     scripts/verify-semantic-acceptance.sh
     scripts/verify-durable-restart-recovery.sh
     scripts/verify-postgres-repository.sh
@@ -186,6 +188,8 @@ required_files=(
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/DurableReceiptCursorTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/identity/SyntheticRealtimeIdentityRegistryTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/acceptance/SemanticAcceptanceGateTest.kt
+    src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/capacity/RealtimeCapacityStatisticsTest.kt
+    src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/capacity/RealtimeSingleInstanceCapacityRuntimeTest.kt
 )
 
 for required_file in "${required_files[@]}"; do
@@ -279,6 +283,7 @@ bash -n scripts/verify-durable-message-created-events.sh
 bash -n scripts/verify-durable-catch-up-resync.sh
 bash -n scripts/verify-durable-receipts.sh
 bash -n scripts/verify-realtime-transport-hardening.sh
+bash -n scripts/verify-realtime-capacity-baseline.sh
 bash -n scripts/verify-semantic-acceptance.sh
 bash -n scripts/verify-durable-restart-recovery.sh
 bash -n scripts/verify-postgres-repository.sh
@@ -690,6 +695,9 @@ printf 'DURABLE_RECEIPT_CONTRACT=PASS\n'
 
 ./scripts/verify-realtime-transport-hardening.sh
 printf 'REALTIME_TRANSPORT_HARDENING=PASS\n'
+
+./scripts/verify-realtime-capacity-baseline.sh
+printf 'REALTIME_SINGLE_INSTANCE_CAPACITY=PASS\n'
 
 ./scripts/verify-postgres-schema.sh
 printf 'POSTGRES_SCHEMA_CONTRACT=PASS\n'
