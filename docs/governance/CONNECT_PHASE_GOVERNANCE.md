@@ -5,11 +5,16 @@
 - Programme: `NEXO_CONNECT_LAB`
 - Repository: `connect-lab`
 - Branch: `main`
-- Accepted baseline: `CONNECT.C6`
-- Baseline commit: `8939caf34d603ee650e62f6a591050e1dbad35a8`
-- Baseline commit count: `29`
-- Establishing phase: `CONNECT.01`
-- Next phase after acceptance: `CONNECT.02`
+- Accepted baseline: `CONNECT.USER.BASELINE` after `CONNECT.07`
+- Baseline commit: `558d702bd5e7729721cde71d0e3080513798dcdd`
+- Baseline parent: `e330359dc6602e9a33da891b5fdb64ed8c199f38`
+- Baseline commit count: `31`
+- Establishing phase: `CONNECT.08`
+- Next phase after acceptance: `CONNECT.09`
+
+`CONNECT.07` is the accepted governance commit `e330359...`; its historical
+subject used the temporary label `[CONNECT.01]`. The hash is preserved and the
+continuous numbering `CONNECT.07`–`CONNECT.56` is authoritative from now on.
 
 The machine-verifiable policy is held in
 `docs/governance/connect-phase-policy.properties`. Accepted historical phase
@@ -39,9 +44,15 @@ import ordering and removal of unused imports are not functional regressions.
 Compilation, executable contracts and runtime tests remain the functional
 authority. Repository-wide formatting requires its own explicit phase.
 
-The staged empty `docker-compose.watch.yml` present at the C6 baseline belongs
-to the user. It must stay empty, staged and outside phase commits until the user
-explicitly authorises a different treatment.
+The canonical Kotlin/KTS contract is defined by `.editorconfig`, Spotless
+`8.9.0` and ktlint `1.8.0`. Its ratchet starts at the accepted user baseline
+after `CONNECT.07`, so only later code is formatted. IntelliJ setup,
+allowed user actions and convergence checks are documented in
+`docs/governance/INTELLIJ_FORMATTING.md`.
+
+The empty `docker-compose.watch.yml` is tracked by the accepted user baseline.
+Later phase commits must preserve it byte-for-byte unless the user explicitly
+authorises a functional watch configuration.
 
 ## Permanent boundaries
 

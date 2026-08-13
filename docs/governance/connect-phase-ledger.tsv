@@ -6,5 +6,7 @@ BASELINE	CONNECT.C3	PASS	1b297ed5c64b7122103e8394cd8832395ac67fab	feat(connect):
 BASELINE	CONNECT.C4	PASS	19f9124724cbc1c187a0b717503cc0009aafbb04	feat(connect): add durable catch-up and resync
 BASELINE	CONNECT.C5	PASS	e6a8775bf2131ea61f864535385674929eb3bb33	feat(connect): add durable delivery and read receipts
 BASELINE	CONNECT.C6	PASS	8939caf34d603ee650e62f6a591050e1dbad35a8	feat(connect): harden realtime transport boundary
-CURRENT	CONNECT.01	IMPLEMENTING	DISCOVER_BY_SUBJECT	chore(connect): [CONNECT.01] establish phase governance baseline
-NEXT	CONNECT.02	LOCKED	-	chore(connect): [CONNECT.02] align IntelliJ and CI formatting
+BASELINE	CONNECT.07	PASS	e330359dc6602e9a33da891b5fdb64ed8c199f38	chore(connect): [CONNECT.01] establish phase governance baseline
+BASELINE	CONNECT.USER.BASELINE	PASS	558d702bd5e7729721cde71d0e3080513798dcdd	.
+CURRENT	CONNECT.08	IMPLEMENTING	DISCOVER_BY_SUBJECT	chore(connect): [CONNECT.08] align IntelliJ and CI formatting
+NEXT	CONNECT.09	LOCKED	-	test(connect): [CONNECT.09] harden semantic acceptance gates

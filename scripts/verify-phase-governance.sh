@@ -8,10 +8,10 @@ POLICY_FILE="${PROJECT_DIR}/docs/governance/connect-phase-policy.properties"
 LEDGER_FILE="${PROJECT_DIR}/docs/governance/connect-phase-ledger.tsv"
 OWNERSHIP_FILE="${PROJECT_DIR}/docs/governance/connect-ownership.properties"
 STATE_FILE="${PROJECT_DIR}/docs/governance/CONNECT_PHASE_GOVERNANCE.md"
-REQUIRE_EMPTY_STAGED_WATCH=0
+REQUIRE_EMPTY_TRACKED_WATCH=0
 
-if [[ "${1:-}" == "--require-empty-staged-watch" ]]; then
-    REQUIRE_EMPTY_STAGED_WATCH=1
+if [[ "${1:-}" == "--require-empty-tracked-watch" ]]; then
+    REQUIRE_EMPTY_TRACKED_WATCH=1
 elif [[ $# -ne 0 ]]; then
     printf 'PHASE_GOVERNANCE=FAIL\n' >&2
     printf 'ERROR=UNSUPPORTED_ARGUMENT\n' >&2
@@ -62,23 +62,39 @@ require_property "$POLICY_FILE" programme NEXO_CONNECT_LAB
 require_property "$POLICY_FILE" policy.version 1
 require_property "$POLICY_FILE" repository connect-lab
 require_property "$POLICY_FILE" branch main
-require_property "$POLICY_FILE" baseline.phase CONNECT.C6
-require_property "$POLICY_FILE" baseline.head 8939caf34d603ee650e62f6a591050e1dbad35a8
-require_property "$POLICY_FILE" baseline.commit_count 29
-require_property "$POLICY_FILE" establishing.phase CONNECT.01
-require_property "$POLICY_FILE" next.phase CONNECT.02
+require_property "$POLICY_FILE" baseline.phase CONNECT.USER.BASELINE
+require_property "$POLICY_FILE" baseline.head 558d702bd5e7729721cde71d0e3080513798dcdd
+require_property "$POLICY_FILE" baseline.parent e330359dc6602e9a33da891b5fdb64ed8c199f38
+require_property "$POLICY_FILE" baseline.commit_count 31
+require_property "$POLICY_FILE" baseline.subject .
+require_property "$POLICY_FILE" establishing.phase CONNECT.08
+require_property "$POLICY_FILE" next.phase CONNECT.09
 require_property "$POLICY_FILE" commits.per.phase 1
 require_property "$POLICY_FILE" intermediate.commits forbidden
 require_property "$POLICY_FILE" commit.before.full_pass forbidden
 require_property "$POLICY_FILE" commit.on_fail forbidden
 require_property "$POLICY_FILE" user.preexisting.path docker-compose.watch.yml
-require_property "$POLICY_FILE" user.preexisting.kind empty_staged_file
-require_property "$POLICY_FILE" user.preexisting.commit_inclusion forbidden
+require_property "$POLICY_FILE" user.preexisting.kind empty_tracked_file
+require_property "$POLICY_FILE" user.preexisting.commit_inclusion accepted_user_baseline
 require_property "$POLICY_FILE" ide.reformat.behaviour_change forbidden
 require_property "$POLICY_FILE" ide.cleanup.progress_loss forbidden
+require_property "$POLICY_FILE" formatter.plugin spotless
+require_property "$POLICY_FILE" formatter.plugin.version 8.9.0
+require_property "$POLICY_FILE" formatter.engine ktlint
+require_property "$POLICY_FILE" formatter.engine.version 1.8.0
+require_property "$POLICY_FILE" formatter.ratchet.from 558d702bd5e7729721cde71d0e3080513798dcdd
+require_property "$POLICY_FILE" formatter.mass.reformat forbidden
+require_property "$POLICY_FILE" formatter.generated.paths excluded
 require_property "$POLICY_FILE" nexo.mutation.before_connect_46 forbidden
 require_property "$POLICY_FILE" nexo.db.direct_access 0
 require_property "$POLICY_FILE" database.sharing forbidden
+
+[[ "$(git rev-parse 558d702bd5e7729721cde71d0e3080513798dcdd^ 2>/dev/null || true)" == \
+    "e330359dc6602e9a33da891b5fdb64ed8c199f38" ]] || fail "USER_BASELINE_PARENT_MISMATCH"
+[[ "$(git rev-list --count 558d702bd5e7729721cde71d0e3080513798dcdd 2>/dev/null || true)" == "31" ]] ||
+    fail "USER_BASELINE_COMMIT_COUNT_MISMATCH"
+[[ "$(git show -s --format=%s 558d702bd5e7729721cde71d0e3080513798dcdd 2>/dev/null || true)" == "." ]] ||
+    fail "USER_BASELINE_SUBJECT_MISMATCH"
 
 require_property "$OWNERSHIP_FILE" manifest.version 1
 require_property "$OWNERSHIP_FILE" nexo_core.owns identity,business,branch,products,orders,payments,inventory,fiscal,accounting
@@ -92,7 +108,7 @@ require_property "$OWNERSHIP_FILE" connect.nexo_business_mutation forbidden
 require_property "$OWNERSHIP_FILE" connect.country_specific_legal_logic forbidden
 require_property "$OWNERSHIP_FILE" integration.first_phase CONNECT.46
 
-expected_phases="CONNECT.B CONNECT.C1 CONNECT.C2 CONNECT.C3 CONNECT.C4 CONNECT.C5 CONNECT.C6"
+expected_phases="CONNECT.B CONNECT.C1 CONNECT.C2 CONNECT.C3 CONNECT.C4 CONNECT.C5 CONNECT.C6 CONNECT.07 CONNECT.USER.BASELINE"
 actual_phases=""
 baseline_count=0
 current_count=0
@@ -119,13 +135,13 @@ while IFS=$'\t' read -r record phase status commit subject; do
             ;;
         CURRENT)
             current_count=$((current_count + 1))
-            [[ "$phase" == "CONNECT.01" && "$status" == "IMPLEMENTING" && "$commit" == "DISCOVER_BY_SUBJECT" ]] ||
+            [[ "$phase" == "CONNECT.08" && "$status" == "IMPLEMENTING" && "$commit" == "DISCOVER_BY_SUBJECT" ]] ||
                 fail "LEDGER_CURRENT_MISMATCH"
             current_subject="$subject"
             ;;
         NEXT)
             next_count=$((next_count + 1))
-            [[ "$phase" == "CONNECT.02" && "$status" == "LOCKED" && "$commit" == "-" ]] ||
+            [[ "$phase" == "CONNECT.09" && "$status" == "LOCKED" && "$commit" == "-" ]] ||
                 fail "LEDGER_NEXT_MISMATCH"
             ;;
         "")
@@ -136,41 +152,42 @@ while IFS=$'\t' read -r record phase status commit subject; do
     esac
 done < "$LEDGER_FILE"
 
-[[ "$baseline_count" -eq 7 && "$actual_phases" == "$expected_phases" ]] ||
+[[ "$baseline_count" -eq 9 && "$actual_phases" == "$expected_phases" ]] ||
     fail "LEDGER_BASELINE_SEQUENCE_MISMATCH"
 [[ "$current_count" -eq 1 && "$next_count" -eq 1 ]] || fail "LEDGER_PHASE_CARDINALITY_MISMATCH"
 
-connect_01_matches="$(git log HEAD --format='%H%x09%s' | awk -F '\t' -v expected="$current_subject" '$2 == expected { print $1 }')"
-connect_01_count="$(printf '%s\n' "$connect_01_matches" | awk 'NF { count++ } END { print count + 0 }')"
+connect_08_matches="$(git log HEAD --format='%H%x09%s' | awk -F '\t' -v expected="$current_subject" '$2 == expected { print $1 }')"
+connect_08_count="$(printf '%s\n' "$connect_08_matches" | awk 'NF { count++ } END { print count + 0 }')"
 
-if [[ "$connect_01_count" == "0" ]]; then
-    [[ "$(git rev-parse HEAD)" == "8939caf34d603ee650e62f6a591050e1dbad35a8" ]] ||
-        fail "CONNECT_01_COMMIT_MISSING_AFTER_BASELINE"
-elif [[ "$connect_01_count" == "1" ]]; then
-    connect_01_commit="$connect_01_matches"
-    [[ "$(git rev-parse "${connect_01_commit}^")" == "8939caf34d603ee650e62f6a591050e1dbad35a8" ]] ||
-        fail "CONNECT_01_PARENT_MISMATCH"
-    git merge-base --is-ancestor "$connect_01_commit" HEAD || fail "CONNECT_01_NOT_ANCESTOR"
+if [[ "$connect_08_count" == "0" ]]; then
+    [[ "$(git rev-parse HEAD)" == "558d702bd5e7729721cde71d0e3080513798dcdd" ]] ||
+        fail "CONNECT_08_COMMIT_MISSING_AFTER_BASELINE"
+elif [[ "$connect_08_count" == "1" ]]; then
+    connect_08_commit="$connect_08_matches"
+    [[ "$(git rev-parse "${connect_08_commit}^")" == "558d702bd5e7729721cde71d0e3080513798dcdd" ]] ||
+        fail "CONNECT_08_PARENT_MISMATCH"
+    git merge-base --is-ancestor "$connect_08_commit" HEAD || fail "CONNECT_08_NOT_ANCESTOR"
 else
-    fail "CONNECT_01_COMMIT_NOT_UNIQUE"
+    fail "CONNECT_08_COMMIT_NOT_UNIQUE"
 fi
 
-if [[ "$REQUIRE_EMPTY_STAGED_WATCH" -eq 1 ]]; then
+if [[ "$REQUIRE_EMPTY_TRACKED_WATCH" -eq 1 ]]; then
     watch_path="$(property_value "$POLICY_FILE" user.preexisting.path)" ||
         fail "WATCH_POLICY_MISSING"
     [[ -f "$watch_path" && ! -L "$watch_path" && ! -s "$watch_path" ]] ||
         fail "WATCH_WORKTREE_NOT_EMPTY_REGULAR_FILE"
-    git diff --quiet -- "$watch_path" || fail "WATCH_HAS_UNSTAGED_CHANGE"
+    git diff --quiet -- "$watch_path" || fail "WATCH_HAS_WORKTREE_CHANGE"
+    git diff --cached --quiet -- "$watch_path" || fail "WATCH_HAS_INDEX_CHANGE"
     watch_index="$(git ls-files --stage -- "$watch_path")"
     [[ "$watch_index" == "100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 0"$'\t'"$watch_path" ]] ||
-        fail "WATCH_INDEX_NOT_EMPTY_STAGED_FILE"
-    if git cat-file -e "HEAD:${watch_path}" 2>/dev/null; then
-        fail "WATCH_ALREADY_TRACKED_IN_HEAD"
-    fi
+        fail "WATCH_INDEX_NOT_EMPTY_TRACKED_FILE"
+    [[ "$(git rev-parse "HEAD:${watch_path}" 2>/dev/null || true)" == \
+        "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391" ]] || fail "WATCH_HEAD_NOT_EMPTY_TRACKED_FILE"
 fi
 
 printf 'PHASE_GOVERNANCE=PASS\n'
-printf 'BASELINE_C6=PASS\n'
+printf 'BASELINE_CONNECT_07=PASS\n'
+printf 'USER_BASELINE=PASS\n'
 printf 'OWNERSHIP_MANIFEST=PASS\n'
 printf 'ONE_COMMIT_POLICY=PASS\n'
-printf 'WATCH_PROTECTION=%s\n' "$([[ "$REQUIRE_EMPTY_STAGED_WATCH" -eq 1 ]] && printf PASS || printf NOT_REQUIRED)"
+printf 'WATCH_PROTECTION=%s\n' "$([[ "$REQUIRE_EMPTY_TRACKED_WATCH" -eq 1 ]] && printf PASS || printf NOT_REQUIRED)"

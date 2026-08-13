@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.spotless)
     alias(ktorLibs.plugins.ktor)
 }
 
@@ -14,6 +15,25 @@ application {
 kotlin {
     jvmToolchain(21)
 }
+
+spotless {
+    ratchetFrom("558d702bd5e7729721cde71d0e3080513798dcdd")
+
+    kotlin {
+        target("src/**/*.kt")
+        targetExclude("**/build/**", "**/generated/**")
+        ktlint(libs.versions.ktlint.get())
+            .setEditorConfigPath(rootProject.file(".editorconfig"))
+    }
+
+    kotlinGradle {
+        target("*.gradle.kts", "gradle/**/*.gradle.kts")
+        targetExclude("**/build/**", "**/generated/**")
+        ktlint(libs.versions.ktlint.get())
+            .setEditorConfigPath(rootProject.file(".editorconfig"))
+    }
+}
+
 dependencies {
     implementation(libs.flyway.core)
     implementation(ktorLibs.server.config.yaml)
@@ -49,4 +69,8 @@ tasks.register<Test>("postgresIntegrationTest") {
     testClassesDirs = postgresIntegrationTest.output.classesDirs
     classpath = postgresIntegrationTest.runtimeClasspath
     shouldRunAfter(tasks.test)
+}
+
+tasks.named("check") {
+    dependsOn(tasks.named("spotlessCheck"))
 }

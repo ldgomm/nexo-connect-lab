@@ -99,6 +99,7 @@ trap finish EXIT
 cd "$PROJECT_DIR"
 
 required_files=(
+    .editorconfig
     .dockerignore
     .env.example
     .env.host.example
@@ -110,9 +111,11 @@ required_files=(
     compose.yaml
     docker/postgres/init/001-create-connect-app-role.sh
     docs/governance/CONNECT_PHASE_GOVERNANCE.md
+    docs/governance/INTELLIJ_FORMATTING.md
     docs/governance/connect-ownership.properties
     docs/governance/connect-phase-ledger.tsv
     docs/governance/connect-phase-policy.properties
+    gradle/libs.versions.toml
     gradlew
     scripts/ci-verify.sh
     scripts/generate-local-env.sh
@@ -128,6 +131,7 @@ required_files=(
     scripts/verify-postgres-repository.sh
     scripts/verify-postgres-schema.sh
     scripts/verify-phase-governance.sh
+    scripts/verify-formatting-convergence.sh
     settings.gradle.kts
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/persistence/ConversationRepository.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/persistence/DurableMessageHistoryRepository.kt
@@ -276,12 +280,16 @@ bash -n scripts/verify-durable-restart-recovery.sh
 bash -n scripts/verify-postgres-repository.sh
 bash -n scripts/verify-postgres-schema.sh
 bash -n scripts/verify-phase-governance.sh
+bash -n scripts/verify-formatting-convergence.sh
 bash -n docker/postgres/init/001-create-connect-app-role.sh
 bash -n scripts/ci-verify.sh
 git diff --check
 
 ./scripts/verify-phase-governance.sh
 printf 'PHASE_GOVERNANCE_CONTRACT=PASS\n'
+
+./scripts/verify-formatting-convergence.sh
+printf 'FORMATTER_CONVERGENCE_CONTRACT=PASS\n'
 
 CONNECT_C5_MIGRATION_DIRECTORY="src/main/resources/db/migration"
 CONNECT_C5_MIGRATION_FILE_COUNT="$(
