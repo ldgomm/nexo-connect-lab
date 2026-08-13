@@ -5,11 +5,11 @@
 - Programme: `NEXO_CONNECT_LAB`
 - Repository: `connect-lab`
 - Branch: `main`
-- Accepted phase: `CONNECT.09`
-- Accepted HEAD: `e13051b9d1f487e1978670bdaf608ead96d66486`
+- Accepted phase: `CONNECT.10`
+- Accepted HEAD: `b75633a445e6c7dc6bd686a0471f4078c616a14c`
 - Immutable user baseline: `558d702bd5e7729721cde71d0e3080513798dcdd`
-- Active phase: `CONNECT.10`
-- Next phase after acceptance: `CONNECT.11`
+- Active phase: `CONNECT.11`
+- Next phase after acceptance: `CONNECT.12`
 
 `CONNECT.07` is the accepted governance commit `e330359...`; its historical
 subject used the temporary label `[CONNECT.01]`. The hash is preserved and the
@@ -57,6 +57,12 @@ The `CONNECT.10` capacity contract is documented in
 `docs/performance/CONNECT_10_SINGLE_INSTANCE_CAPACITY.md`. It records a bounded,
 reproducible local envelope and never promotes a workstation measurement into a
 production capacity claim.
+
+The `CONNECT.11` distributed topology is frozen by
+`docs/architecture/ADR-001_CONNECT_MULTI_INSTANCE_EPHEMERAL_REDIS_FANOUT.md`
+and its machine-verifiable properties contract. PostgreSQL remains durable
+truth; Redis is an ephemeral best-effort notification path, and authorised
+catch-up repairs live fan-out loss.
 
 The empty `docker-compose.watch.yml` is tracked by the accepted user baseline.
 Later phase commits must preserve it byte-for-byte unless the user explicitly

@@ -110,6 +110,8 @@ required_files=(
     build.gradle.kts
     compose.yaml
     docker/postgres/init/001-create-connect-app-role.sh
+    docs/architecture/ADR-001_CONNECT_MULTI_INSTANCE_EPHEMERAL_REDIS_FANOUT.md
+    docs/architecture/connect-multi-instance-fanout-contract.properties
     docs/governance/CONNECT_PHASE_GOVERNANCE.md
     docs/governance/INTELLIJ_FORMATTING.md
     docs/governance/SEMANTIC_ACCEPTANCE_GATES.md
@@ -136,6 +138,7 @@ required_files=(
     scripts/verify-postgres-schema.sh
     scripts/verify-phase-governance.sh
     scripts/verify-formatting-convergence.sh
+    scripts/verify-multi-instance-fanout-architecture.sh
     settings.gradle.kts
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/persistence/ConversationRepository.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/persistence/DurableMessageHistoryRepository.kt
@@ -290,6 +293,7 @@ bash -n scripts/verify-postgres-repository.sh
 bash -n scripts/verify-postgres-schema.sh
 bash -n scripts/verify-phase-governance.sh
 bash -n scripts/verify-formatting-convergence.sh
+bash -n scripts/verify-multi-instance-fanout-architecture.sh
 bash -n docker/postgres/init/001-create-connect-app-role.sh
 bash -n scripts/ci-verify.sh
 git diff --check
@@ -302,6 +306,9 @@ printf 'FORMATTER_CONVERGENCE_CONTRACT=PASS\n'
 
 ./scripts/verify-semantic-acceptance.sh
 printf 'SEMANTIC_ACCEPTANCE_CONTRACT=PASS\n'
+
+./scripts/verify-multi-instance-fanout-architecture.sh
+printf 'MULTI_INSTANCE_FANOUT_ARCHITECTURE_CONTRACT=PASS\n'
 
 CONNECT_C5_MIGRATION_DIRECTORY="src/main/resources/db/migration"
 CONNECT_C5_MIGRATION_FILE_COUNT="$(
