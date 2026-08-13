@@ -119,6 +119,7 @@ required_files=(
     scripts/verify-durable-message-created-events.sh
     scripts/verify-durable-catch-up-resync.sh
     scripts/verify-durable-receipts.sh
+    scripts/verify-realtime-transport-hardening.sh
     scripts/verify-durable-restart-recovery.sh
     scripts/verify-postgres-repository.sh
     scripts/verify-postgres-schema.sh
@@ -132,6 +133,7 @@ required_files=(
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/DurableConversationCatchUp.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/DurableReceiptCursorService.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/realtime/RealtimeTransport.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/realtime/RealtimeTransportHardening.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/DurableTextMessageRoutes.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/RealtimeProtocol.kt
@@ -169,6 +171,7 @@ required_files=(
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/DurableConversationCatchUpTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeCatchUpRuntimeTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeReceiptRuntimeTest.kt
+    src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/realtime/RealtimeTransportHardeningTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/DurableReceiptCursorTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/identity/SyntheticRealtimeIdentityRegistryTest.kt
 )
@@ -262,6 +265,7 @@ bash -n scripts/verify-database-lifecycle.sh
 bash -n scripts/verify-durable-message-created-events.sh
 bash -n scripts/verify-durable-catch-up-resync.sh
 bash -n scripts/verify-durable-receipts.sh
+bash -n scripts/verify-realtime-transport-hardening.sh
 bash -n scripts/verify-durable-restart-recovery.sh
 bash -n scripts/verify-postgres-repository.sh
 bash -n scripts/verify-postgres-schema.sh
@@ -495,6 +499,38 @@ if ! grep -Fq 'const val ACK_DELIVERY = "ACK_DELIVERY"' \
     printf 'ERROR=CONNECT_C5_DURABLE_RECEIPT_CONTRACT_MISMATCH\n' >&2
     exit 20
 fi
+
+if ! grep -Fq 'class BoundedRealtimeOutboundSender' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/realtime/RealtimeTransportHardening.kt ||
+    ! grep -Fq 'Channel<PendingFrame>(capacity)' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/realtime/RealtimeTransportHardening.kt ||
+    ! grep -Fq 'withTimeout(sendTimeoutMillis)' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/realtime/RealtimeTransportHardening.kt ||
+    ! grep -Fq 'SlowRealtimeConsumerException' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/realtime/RealtimeTransportHardening.kt ||
+    ! grep -Fq 'RealtimeConnectionLimiter' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/realtime/RealtimeTransport.kt ||
+    ! grep -Fq 'CONNECTION_LIMIT_REACHED' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt ||
+    ! grep -Fq 'SLOW_CONSUMER' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt ||
+    ! grep -Fq 'outboundSender.shutdown()' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt ||
+    ! grep -Fq 'connectionLease.close()' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt ||
+    ! grep -Fq 'LIVE_FAN_OUT_SCOPE = "SINGLE_APPLICATION_INSTANCE"' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/RealtimeProtocol.kt ||
+    ! grep -Fq 'PING_PERIOD_SECONDS = 20' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/RealtimeProtocol.kt ||
+    ! grep -Fq 'IDLE_TIMEOUT_SECONDS = 15' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/RealtimeProtocol.kt ||
+    grep -REn '(Jedis|Lettuce|RedisClient|redis://|TYPING_START|TYPING_STOP|PRESENCE_CHANGED)' \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/realtime/RealtimeTransportHardening.kt \
+        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt; then
+    printf 'CI_STATIC_CONTRACT=FAIL\n' >&2
+    printf 'ERROR=CONNECT_C6_REALTIME_TRANSPORT_HARDENING_CONTRACT_MISMATCH\n' >&2
+    exit 20
+fi
 printf 'CI_STATIC_CONTRACT=PASS\n'
 
 if [[ -e "$ENV_FILE" || -L "$ENV_FILE" ]]; then
@@ -625,6 +661,9 @@ printf 'DURABLE_CATCH_UP_RESYNC_CONTRACT=PASS\n'
 
 ./scripts/verify-durable-receipts.sh
 printf 'DURABLE_RECEIPT_CONTRACT=PASS\n'
+
+./scripts/verify-realtime-transport-hardening.sh
+printf 'REALTIME_TRANSPORT_HARDENING=PASS\n'
 
 ./scripts/verify-postgres-schema.sh
 printf 'POSTGRES_SCHEMA_CONTRACT=PASS\n'

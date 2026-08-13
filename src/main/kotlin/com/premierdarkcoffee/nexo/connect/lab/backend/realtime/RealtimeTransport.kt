@@ -49,6 +49,8 @@ internal class AuthenticatedRealtimeRuntime(
     val durableConversationCatchUp: DurableConversationCatchUp?,
     val durableReceiptCursorService: DurableReceiptCursorService?,
     val maxConversationSubscriptions: Int,
+    val connectionLimiter: RealtimeConnectionLimiter,
+    val hardeningConfig: RealtimeTransportHardeningConfig,
 )
 
 private val RealtimeRuntimeKey =
@@ -74,6 +76,7 @@ internal fun Application.installAuthenticatedRealtimeTransport(
     durableReceiptCursorRepository: DurableReceiptCursorRepository? = null,
     serverMessageRefFactory: () -> String = { "message-${UUID.randomUUID()}" },
     maxConversationSubscriptions: Int = RealtimeProtocol.MAX_CONVERSATION_SUBSCRIPTIONS,
+    hardeningConfig: RealtimeTransportHardeningConfig = RealtimeTransportHardeningConfig(),
 ) {
     require(maxConversationSubscriptions in 1..RealtimeProtocol.MAX_CONVERSATION_SUBSCRIPTIONS) {
         "maxConversationSubscriptions must be between 1 and ${RealtimeProtocol.MAX_CONVERSATION_SUBSCRIPTIONS}"
@@ -124,12 +127,14 @@ internal fun Application.installAuthenticatedRealtimeTransport(
             durableConversationCatchUp = durableConversationCatchUp,
             durableReceiptCursorService = durableReceiptCursorService,
             maxConversationSubscriptions = maxConversationSubscriptions,
+            connectionLimiter = RealtimeConnectionLimiter(hardeningConfig.maxConcurrentConnections),
+            hardeningConfig = hardeningConfig,
         ),
     )
 
     install(WebSockets) {
-        pingPeriod = 20.seconds
-        timeout = 15.seconds
+        pingPeriod = RealtimeProtocol.PING_PERIOD_SECONDS.seconds
+        timeout = RealtimeProtocol.IDLE_TIMEOUT_SECONDS.seconds
         maxFrameSize = RealtimeProtocol.MAX_TEXT_FRAME_BYTES
         masking = false
     }

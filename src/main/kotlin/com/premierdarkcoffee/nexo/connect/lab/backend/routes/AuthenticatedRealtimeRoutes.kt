@@ -1,6 +1,7 @@
 package com.premierdarkcoffee.nexo.connect.lab.backend.routes
 
 import com.premierdarkcoffee.nexo.connect.lab.backend.realtime.AuthenticatedConnectPrincipal
+import com.premierdarkcoffee.nexo.connect.lab.backend.realtime.BoundedRealtimeOutboundSender
 import com.premierdarkcoffee.nexo.connect.lab.backend.realtime.REALTIME_AUTH_PROVIDER
 import com.premierdarkcoffee.nexo.connect.lab.backend.realtime.authenticatedRealtimeRuntime
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.AuthorizeConversationSubscriptionRequest
@@ -39,11 +40,15 @@ import io.ktor.websocket.Frame
 import io.ktor.websocket.close
 import io.ktor.websocket.readText
 import io.ktor.websocket.send
+import io.ktor.util.AttributeKey
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
+
+private val RealtimeOutboundSenderKey =
+    AttributeKey<BoundedRealtimeOutboundSender>("NexoConnectLabRealtimeOutboundSender")
 
 fun Route.authenticatedRealtimeRoutes(application: Application) {
     val runtime = application.authenticatedRealtimeRuntime()
@@ -56,18 +61,40 @@ fun Route.authenticatedRealtimeRoutes(application: Application) {
                 return@webSocket
             }
 
-            val registration =
-                runtime.conversationEventHub.register(
-                    principal = authenticated.connectPrincipal,
-                    sink =
-                        MessageCreatedEventSink { event ->
-                            sendMessageCreated(runtime, event)
-                        },
-                    receiptSink =
-                        ReceiptCursorEventSink { event ->
-                            sendReceiptCursor(runtime, event)
-                        },
+            val connectionLease = runtime.connectionLimiter.tryAcquire()
+            if (connectionLease == null) {
+                close(CloseReason(CloseReason.Codes.TRY_AGAIN_LATER, "CONNECTION_LIMIT_REACHED"))
+                return@webSocket
+            }
+            val outboundSender =
+                BoundedRealtimeOutboundSender(
+                    scope = this,
+                    capacity = runtime.hardeningConfig.outboundQueueCapacity,
+                    sendTimeoutMillis = runtime.hardeningConfig.outboundSendTimeoutMillis,
+                    writeText = { encoded -> send(Frame.Text(encoded)) },
+                    closeSlowConsumer = {
+                        close(CloseReason(CloseReason.Codes.TRY_AGAIN_LATER, "SLOW_CONSUMER"))
+                    },
                 )
+            call.attributes.put(RealtimeOutboundSenderKey, outboundSender)
+            val registration =
+                try {
+                    runtime.conversationEventHub.register(
+                        principal = authenticated.connectPrincipal,
+                        sink =
+                            MessageCreatedEventSink { event ->
+                                sendMessageCreated(runtime, event)
+                            },
+                        receiptSink =
+                            ReceiptCursorEventSink { event ->
+                                sendReceiptCursor(runtime, event)
+                            },
+                    )
+                } catch (failure: Exception) {
+                    outboundSender.shutdown()
+                    connectionLease.close()
+                    throw failure
+                }
 
             try {
                 sendServerFrame(
@@ -137,6 +164,8 @@ fun Route.authenticatedRealtimeRoutes(application: Application) {
                 }
             } finally {
                 runtime.conversationEventHub.unregister(registration)
+                outboundSender.shutdown()
+                connectionLease.close()
             }
         }
     }
@@ -536,7 +565,7 @@ private suspend fun DefaultWebSocketServerSession.closeWithError(
     closeCode: CloseReason.Codes,
     correlationId: String? = null,
 ) {
-    sendProtocolError(runtime, code, false, correlationId)
+    sendProtocolError(runtime, code, false, correlationId, awaitDelivery = true)
     close(CloseReason(closeCode, code))
 }
 
@@ -545,6 +574,7 @@ private suspend fun DefaultWebSocketServerSession.sendProtocolError(
     code: String,
     retryable: Boolean,
     correlationId: String? = null,
+    awaitDelivery: Boolean = false,
 ) {
     sendServerFrame(
         runtime,
@@ -555,12 +585,17 @@ private suspend fun DefaultWebSocketServerSession.sendProtocolError(
             correlationId = correlationId,
             error = RealtimeProtocolError(code = code, retryable = retryable),
         ),
+        awaitDelivery = awaitDelivery,
     )
 }
 
 private suspend fun DefaultWebSocketServerSession.sendServerFrame(
     runtime: com.premierdarkcoffee.nexo.connect.lab.backend.realtime.AuthenticatedRealtimeRuntime,
     frame: ServerRealtimeFrame,
+    awaitDelivery: Boolean = false,
 ) {
-    send(Frame.Text(runtime.json.encodeToString(frame)))
+    call.attributes[RealtimeOutboundSenderKey].send(
+        text = runtime.json.encodeToString(frame),
+        awaitDelivery = awaitDelivery,
+    )
 }

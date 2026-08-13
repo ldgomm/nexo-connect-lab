@@ -9,6 +9,9 @@ object RealtimeProtocol {
     const val MAX_CORRELATION_ID_LENGTH = 128
     const val MAX_CONVERSATION_REF_UTF8_BYTES = 256
     const val MAX_CONVERSATION_SUBSCRIPTIONS = 100
+    const val PING_PERIOD_SECONDS = 20
+    const val IDLE_TIMEOUT_SECONDS = 15
+    const val LIVE_FAN_OUT_SCOPE = "SINGLE_APPLICATION_INSTANCE"
 }
 
 object ClientRealtimeFrameType {
