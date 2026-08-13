@@ -5,12 +5,11 @@
 - Programme: `NEXO_CONNECT_LAB`
 - Repository: `connect-lab`
 - Branch: `main`
-- Accepted baseline: `CONNECT.USER.BASELINE` after `CONNECT.07`
-- Baseline commit: `558d702bd5e7729721cde71d0e3080513798dcdd`
-- Baseline parent: `e330359dc6602e9a33da891b5fdb64ed8c199f38`
-- Baseline commit count: `31`
-- Establishing phase: `CONNECT.08`
-- Next phase after acceptance: `CONNECT.09`
+- Accepted phase: `CONNECT.08`
+- Accepted HEAD: `7e9e19a72571cfeb55bbd397e1a7adef6281f0ec`
+- Immutable user baseline: `558d702bd5e7729721cde71d0e3080513798dcdd`
+- Active phase: `CONNECT.09`
+- Next phase after acceptance: `CONNECT.10`
 
 `CONNECT.07` is the accepted governance commit `e330359...`; its historical
 subject used the temporary label `[CONNECT.01]`. The hash is preserved and the
@@ -23,9 +22,10 @@ authority is frozen in `docs/governance/connect-ownership.properties`.
 
 ## Phase lifecycle
 
-Every numbered phase has one visible scope and one final commit:
+Every numbered phase starts from its accepted clean parent and has one visible
+scope and one final commit:
 
-1. verify the accepted parent and preserve pre-existing user changes;
+1. verify the accepted parent and a clean index/worktree;
 2. implement only the active phase;
 3. classify and inspect the complete phase diff;
 4. run targeted checks and the full relevant regression gate;
@@ -33,22 +33,25 @@ Every numbered phase has one visible scope and one final commit:
 6. retain evidence and wait for user acceptance before starting the next phase.
 
 Intermediate commits, commits on failure, unrelated changes, pushes and history
-rewrites are forbidden. A failed installer must restore only phase-owned paths
-and must preserve the user's prior index and worktree state exactly.
+rewrites are forbidden. A failed installer must restore every phase-owned path
+to the accepted parent and leave a clean index/worktree.
 
 ## Formatter and import safety
 
-IntelliJ IDEA `Reformat Code` (`Option+Command+L`) and `Optimize Imports` are
-supported user actions. Whitespace, wrapping, trailing commas, final newlines,
-import ordering and removal of unused imports are not functional regressions.
-Compilation, executable contracts and runtime tests remain the functional
-authority. Repository-wide formatting requires its own explicit phase.
+Manual IntelliJ IDEA `Reformat Code` (`Option+Command+L`), `Optimize Imports`
+and broad cleanup actions are not part of the phase workflow. The repository's
+pinned formatter remains an automated CI guard. Compilation, executable
+contracts and runtime tests are the functional authority.
 
 The canonical Kotlin/KTS contract is defined by `.editorconfig`, Spotless
 `8.9.0` and ktlint `1.8.0`. Its ratchet starts at the accepted user baseline
-after `CONNECT.07`, so only later code is formatted. IntelliJ setup,
-allowed user actions and convergence checks are documented in
+after `CONNECT.07`, so only later code is formatted. Automated convergence and
+the manual-action prohibition are documented in
 `docs/governance/INTELLIJ_FORMATTING.md`.
+
+Semantic acceptance authority is documented in
+`docs/governance/SEMANTIC_ACCEPTANCE_GATES.md`. Positive behaviour is proven by
+compiled, database and runtime contracts; source scans are secondary defence.
 
 The empty `docker-compose.watch.yml` is tracked by the accepted user baseline.
 Later phase commits must preserve it byte-for-byte unless the user explicitly

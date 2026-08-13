@@ -8,5 +8,6 @@ BASELINE	CONNECT.C5	PASS	e6a8775bf2131ea61f864535385674929eb3bb33	feat(connect):
 BASELINE	CONNECT.C6	PASS	8939caf34d603ee650e62f6a591050e1dbad35a8	feat(connect): harden realtime transport boundary
 BASELINE	CONNECT.07	PASS	e330359dc6602e9a33da891b5fdb64ed8c199f38	chore(connect): [CONNECT.01] establish phase governance baseline
 BASELINE	CONNECT.USER.BASELINE	PASS	558d702bd5e7729721cde71d0e3080513798dcdd	.
-CURRENT	CONNECT.08	IMPLEMENTING	DISCOVER_BY_SUBJECT	chore(connect): [CONNECT.08] align IntelliJ and CI formatting
-NEXT	CONNECT.09	LOCKED	-	test(connect): [CONNECT.09] harden semantic acceptance gates
+BASELINE	CONNECT.08	PASS	7e9e19a72571cfeb55bbd397e1a7adef6281f0ec	chore(connect): [CONNECT.08] align IntelliJ and CI formatting
+CURRENT	CONNECT.09	IMPLEMENTING	DISCOVER_BY_SUBJECT	test(connect): [CONNECT.09] harden semantic acceptance gates
+NEXT	CONNECT.10	LOCKED	-	chore(connect): [CONNECT.10] add transactional phase delivery contract

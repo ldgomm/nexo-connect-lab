@@ -112,6 +112,7 @@ required_files=(
     docker/postgres/init/001-create-connect-app-role.sh
     docs/governance/CONNECT_PHASE_GOVERNANCE.md
     docs/governance/INTELLIJ_FORMATTING.md
+    docs/governance/SEMANTIC_ACCEPTANCE_GATES.md
     docs/governance/connect-ownership.properties
     docs/governance/connect-phase-ledger.tsv
     docs/governance/connect-phase-policy.properties
@@ -127,6 +128,7 @@ required_files=(
     scripts/verify-durable-catch-up-resync.sh
     scripts/verify-durable-receipts.sh
     scripts/verify-realtime-transport-hardening.sh
+    scripts/verify-semantic-acceptance.sh
     scripts/verify-durable-restart-recovery.sh
     scripts/verify-postgres-repository.sh
     scripts/verify-postgres-schema.sh
@@ -183,6 +185,7 @@ required_files=(
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/realtime/RealtimeTransportHardeningTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/DurableReceiptCursorTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/identity/SyntheticRealtimeIdentityRegistryTest.kt
+    src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/acceptance/SemanticAcceptanceGateTest.kt
 )
 
 for required_file in "${required_files[@]}"; do
@@ -276,6 +279,7 @@ bash -n scripts/verify-durable-message-created-events.sh
 bash -n scripts/verify-durable-catch-up-resync.sh
 bash -n scripts/verify-durable-receipts.sh
 bash -n scripts/verify-realtime-transport-hardening.sh
+bash -n scripts/verify-semantic-acceptance.sh
 bash -n scripts/verify-durable-restart-recovery.sh
 bash -n scripts/verify-postgres-repository.sh
 bash -n scripts/verify-postgres-schema.sh
@@ -290,6 +294,9 @@ printf 'PHASE_GOVERNANCE_CONTRACT=PASS\n'
 
 ./scripts/verify-formatting-convergence.sh
 printf 'FORMATTER_CONVERGENCE_CONTRACT=PASS\n'
+
+./scripts/verify-semantic-acceptance.sh
+printf 'SEMANTIC_ACCEPTANCE_CONTRACT=PASS\n'
 
 CONNECT_C5_MIGRATION_DIRECTORY="src/main/resources/db/migration"
 CONNECT_C5_MIGRATION_FILE_COUNT="$(
@@ -549,6 +556,7 @@ if ! grep -Fq 'class BoundedRealtimeOutboundSender' \
     printf 'ERROR=CONNECT_C6_REALTIME_TRANSPORT_HARDENING_CONTRACT_MISMATCH\n' >&2
     exit 20
 fi
+printf 'CI_SECONDARY_SOURCE_SCAN=PASS\n'
 printf 'CI_STATIC_CONTRACT=PASS\n'
 
 if [[ -e "$ENV_FILE" || -L "$ENV_FILE" ]]; then

@@ -1,4 +1,4 @@
-# IntelliJ formatting contract
+# Automated formatting contract
 
 ## Canonical toolchain
 
@@ -12,19 +12,11 @@ Versions are fixed in `gradle/libs.versions.toml`; `.editorconfig` is the shared
 source of indentation, line endings, wrapping, trailing-comma and import rules.
 Generated output and every `build` directory are outside formatter scope.
 
-## IntelliJ IDEA
+## Manual IDE actions
 
-1. Enable EditorConfig support and use the project code style.
-2. Use `Option+Command+L` for the current file or selected code.
-3. Use **Code > Optimize Imports** for the current file when required.
-4. Inspect the diff before committing. Do not run a whole-project reformat
-   unless a later phase explicitly authorises it.
-5. Run `./scripts/verify-formatting-convergence.sh` before the phase gate.
-
-Formatting and import cleanup are non-functional changes only when compilation,
-unit tests and executable contracts still pass. Those gates remain authoritative.
-If IntelliJ changes behaviour, keep the change uncommitted and run
-`./gradlew spotlessApply`; never weaken the tests to accept a formatter change.
+Do not run IntelliJ `Option+Command+L`, **Optimize Imports** or broad cleanup
+actions during a phase. Formatting is applied only by the pinned repository
+toolchain and verified automatically before the single final phase commit.
 
 ## CI and future phase installers
 
@@ -34,6 +26,7 @@ formats only Kotlin or Kotlin Gradle files changed after the accepted user
 baseline, preventing an unrelated repository-wide rewrite while making new
 phase code canonical.
 
-Future phase installers must tolerate formatting-only edits in their preflight,
-apply the canonical formatter before tests, and decide acceptance from compiler,
-unit and semantic runtime results rather than whitespace or import layout.
+Future phase installers require the accepted clean parent, apply the canonical
+formatter as an automated gate, and decide acceptance from compiler, unit and
+semantic runtime results rather than whitespace or import layout. Exactly one
+commit is created after every phase gate passes.

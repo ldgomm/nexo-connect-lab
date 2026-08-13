@@ -71,6 +71,24 @@ tasks.register<Test>("postgresIntegrationTest") {
     shouldRunAfter(tasks.test)
 }
 
+tasks.register<Test>("semanticAcceptanceTest") {
+    description = "Runs formatting-independent protocol, security, and runtime contracts."
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    filter {
+        includeTestsMatching("*.SemanticAcceptanceGateTest")
+        includeTestsMatching("*.RealtimeProtocolTest")
+        includeTestsMatching("*.DurableTextAuthorizationContractTest")
+        includeTestsMatching("*.ConversationSubscriptionAuthorizerTest")
+        includeTestsMatching("*.RealtimeTransportHardeningTest")
+        includeTestsMatching("*.AuthenticatedRealtimeRoutesTest")
+        includeTestsMatching("*.AuthenticatedRealtimeRuntimeTest")
+        includeTestsMatching("*.AuthenticatedRealtimeCatchUpRuntimeTest")
+        includeTestsMatching("*.AuthenticatedRealtimeReceiptRuntimeTest")
+    }
+}
+
 tasks.named("check") {
     dependsOn(tasks.named("spotlessCheck"))
 }
