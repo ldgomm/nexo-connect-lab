@@ -16,5 +16,6 @@ BASELINE	CONNECT.12	PASS	655d733b8668011815f66e065d42c5d66c9e555e	feat(connect):
 BASELINE	CONNECT.13	PASS	6442ef285a30f7836d75bba4ddb4452fb56a7a39	feat(connect): [CONNECT.13] add multi-instance realtime fanout
 BASELINE	CONNECT.14	PASS	92178a12832024b3019e583392fb3a4edee608e7	feat(connect): [CONNECT.14] coordinate multi-device realtime sessions
 BASELINE	CONNECT.15	PASS	ae661a58465a3503d89f75019de76f249e76bbdb	test(connect): [CONNECT.15] prove Redis loss recovery
-CURRENT	CONNECT.16	IMPLEMENTING	DISCOVER_BY_SUBJECT	docs(connect): [CONNECT.16] freeze presence privacy contract
-NEXT	CONNECT.17	LOCKED	-	feat(connect): [CONNECT.17] implement ephemeral presence leases
+BASELINE	CONNECT.16	PASS	1478ce9f5e7348c5ac72ff3be457ccdc15ca42f9	docs(connect): [CONNECT.16] freeze presence privacy contract
+CURRENT	CONNECT.17	IMPLEMENTING	DISCOVER_BY_SUBJECT	feat(connect): [CONNECT.17] implement ephemeral presence leases
+NEXT	CONNECT.18	LOCKED	-	feat(connect): [CONNECT.18] implement bounded typing signals

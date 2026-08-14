@@ -76,3 +76,9 @@ conversation participants may receive the coarse
 `ONLINE|RECENTLY_ONLINE|OFFLINE|HIDDEN` projection. Unknown, blocked and
 unrelated subjects produce no frame; exact last-seen and device topology are
 never exposed. Presence remains ephemeral and outside durable history.
+
+Authenticated WebSockets now acquire device-scoped presence leases in the
+isolated Redis namespace. Heartbeats refresh a 45-second TTL every 15 seconds;
+release is owner checked, reconnect rotates ownership, and a crash disappears
+through native expiry. Keys contain only bounded digests, Redis loss never
+blocks durable chat, and PostgreSQL receives zero mutable presence state.

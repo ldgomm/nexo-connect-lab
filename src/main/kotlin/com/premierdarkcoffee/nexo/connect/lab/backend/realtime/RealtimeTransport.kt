@@ -5,6 +5,7 @@ import com.premierdarkcoffee.nexo.connect.lab.application.identity.IdentityVerif
 import com.premierdarkcoffee.nexo.connect.lab.application.persistence.DurableMessageHistoryRepository
 import com.premierdarkcoffee.nexo.connect.lab.application.persistence.DurableReceiptCursorRepository
 import com.premierdarkcoffee.nexo.connect.lab.application.persistence.DurableTextRepository
+import com.premierdarkcoffee.nexo.connect.lab.application.presence.EphemeralPresenceLeaseStore
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.AuthorisedDurableFanoutPayloadLoader
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.AuthorizedConversationEventHub
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.ConversationSubscriptionAuthorizer
@@ -23,6 +24,7 @@ import com.premierdarkcoffee.nexo.connect.lab.infrastructure.persistence.postgre
 import com.premierdarkcoffee.nexo.connect.lab.infrastructure.persistence.postgres.durableMessageHistoryRepositoryOrNull
 import com.premierdarkcoffee.nexo.connect.lab.infrastructure.persistence.postgres.durableReceiptCursorRepositoryOrNull
 import com.premierdarkcoffee.nexo.connect.lab.infrastructure.persistence.postgres.durableTextRepositoryOrNull
+import com.premierdarkcoffee.nexo.connect.lab.infrastructure.redis.redisPresenceLeaseStoreOrNull
 import com.premierdarkcoffee.nexo.connect.lab.infrastructure.redis.redisRealtimeFanoutTransportOrNull
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
@@ -55,6 +57,7 @@ internal class AuthenticatedRealtimeRuntime(
     val maxConversationSubscriptions: Int,
     val connectionLimiter: RealtimeConnectionLimiter,
     val hardeningConfig: RealtimeTransportHardeningConfig,
+    val presenceLeaseStore: EphemeralPresenceLeaseStore?,
 )
 
 private val RealtimeRuntimeKey =
@@ -80,6 +83,7 @@ internal fun Application.installAuthenticatedRealtimeTransport(
     serverMessageRefFactory: () -> String = { "message-${UUID.randomUUID()}" },
     maxConversationSubscriptions: Int = RealtimeProtocol.MAX_CONVERSATION_SUBSCRIPTIONS,
     hardeningConfig: RealtimeTransportHardeningConfig = RealtimeTransportHardeningConfig(),
+    presenceLeaseStore: EphemeralPresenceLeaseStore? = redisPresenceLeaseStoreOrNull(),
 ) {
     require(maxConversationSubscriptions in 1..RealtimeProtocol.MAX_CONVERSATION_SUBSCRIPTIONS) {
         "maxConversationSubscriptions must be between 1 and ${RealtimeProtocol.MAX_CONVERSATION_SUBSCRIPTIONS}"
@@ -149,6 +153,7 @@ internal fun Application.installAuthenticatedRealtimeTransport(
             maxConversationSubscriptions = maxConversationSubscriptions,
             connectionLimiter = RealtimeConnectionLimiter(hardeningConfig.maxConcurrentConnections),
             hardeningConfig = hardeningConfig,
+            presenceLeaseStore = presenceLeaseStore,
         ),
     )
 

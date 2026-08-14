@@ -5,6 +5,11 @@ import com.premierdarkcoffee.nexo.connect.lab.application.persistence.AdvanceDur
 import com.premierdarkcoffee.nexo.connect.lab.application.persistence.DurableReceiptAdvance
 import com.premierdarkcoffee.nexo.connect.lab.application.persistence.LoadDurableReceiptCursorsRequest
 import com.premierdarkcoffee.nexo.connect.lab.application.persistence.LoadDurableReceiptCursorsResult
+import com.premierdarkcoffee.nexo.connect.lab.application.presence.EphemeralPresenceLeaseStore
+import com.premierdarkcoffee.nexo.connect.lab.application.presence.PresenceLeaseAcquireResult
+import com.premierdarkcoffee.nexo.connect.lab.application.presence.PresenceLeaseHandle
+import com.premierdarkcoffee.nexo.connect.lab.application.presence.PresenceLeaseMutationResult
+import com.premierdarkcoffee.nexo.connect.lab.application.presence.PresenceLeaseTarget
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.AuthorizeConversationSubscriptionRequest
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.ConversationSubscriptionAuthorizationResult
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.DurableConversationCatchUpResult
@@ -45,12 +50,14 @@ import io.ktor.websocket.readText
 import io.ktor.websocket.send
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
+import kotlin.math.min
 
 private val RealtimeOutboundSenderKey =
     AttributeKey<BoundedRealtimeOutboundSender>("NexoConnectLabRealtimeOutboundSender")
@@ -100,14 +107,34 @@ fun Route.authenticatedRealtimeRoutes(application: Application) {
                     connectionLease.close()
                     throw failure
                 }
+            val presenceTarget =
+                PresenceLeaseTarget(
+                    subjectRef = authenticated.connectPrincipal.subjectRef,
+                    actorType = authenticated.connectPrincipal.actorType,
+                    platformScopeRef = authenticated.connectPrincipal.platformScopeRef,
+                    deviceRef = registration.deviceRef,
+                )
+            var presenceHandle = acquirePresenceLease(runtime.presenceLeaseStore, presenceTarget)
+            val refreshIntervalMillis =
+                min(
+                    EphemeralRealtimeConnectionRegistry.REFRESH_INTERVAL.toMillis(),
+                    runtime.presenceLeaseStore?.refreshInterval?.toMillis()
+                        ?: EphemeralRealtimeConnectionRegistry.REFRESH_INTERVAL.toMillis(),
+                )
             val registryRefreshJob =
                 launch {
                     while (isActive) {
-                        delay(EphemeralRealtimeConnectionRegistry.REFRESH_INTERVAL.toMillis())
+                        delay(refreshIntervalMillis)
                         if (!runtime.conversationEventHub.touch(registration)) {
                             close(CloseReason(CloseReason.Codes.TRY_AGAIN_LATER, "ROUTING_LEASE_EXPIRED"))
                             break
                         }
+                        presenceHandle =
+                            refreshPresenceLease(
+                                store = runtime.presenceLeaseStore,
+                                target = presenceTarget,
+                                current = presenceHandle,
+                            )
                     }
                 }
 
@@ -194,13 +221,43 @@ fun Route.authenticatedRealtimeRoutes(application: Application) {
                     }
                 }
             } finally {
-                registryRefreshJob.cancel()
+                registryRefreshJob.cancelAndJoin()
+                releasePresenceLease(runtime.presenceLeaseStore, presenceHandle)
                 runtime.conversationEventHub.unregister(registration)
                 outboundSender.shutdown()
                 connectionLease.close()
             }
         }
     }
+}
+
+private suspend fun acquirePresenceLease(
+    store: EphemeralPresenceLeaseStore?,
+    target: PresenceLeaseTarget,
+): PresenceLeaseHandle? = when (val result = store?.acquire(target)) {
+    is PresenceLeaseAcquireResult.Acquired -> result.handle
+    PresenceLeaseAcquireResult.Unavailable, null -> null
+}
+
+private suspend fun refreshPresenceLease(
+    store: EphemeralPresenceLeaseStore?,
+    target: PresenceLeaseTarget,
+    current: PresenceLeaseHandle?,
+): PresenceLeaseHandle? {
+    if (store == null) return null
+    if (current == null) return acquirePresenceLease(store, target)
+    return when (store.refresh(current)) {
+        PresenceLeaseMutationResult.APPLIED,
+        PresenceLeaseMutationResult.UNAVAILABLE,
+        -> current
+
+        PresenceLeaseMutationResult.NOT_OWNER -> acquirePresenceLease(store, target)
+    }
+}
+
+private suspend fun releasePresenceLease(store: EphemeralPresenceLeaseStore?, handle: PresenceLeaseHandle?) {
+    if (store == null || handle == null) return
+    store.release(handle)
 }
 
 private suspend fun DefaultWebSocketServerSession.handleClientFrame(

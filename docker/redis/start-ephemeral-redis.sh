@@ -31,7 +31,7 @@ trap 'rm -f "$ACL_FILE"' EXIT HUP INT TERM
 
 {
     printf 'user default reset on >%s ~* &* +@all\n' "$CONNECT_LAB_REDIS_PASSWORD"
-    printf 'user %s reset on >%s ~nexo-connect-lab:* &nexo.connect.realtime.v1.* +ping +echo +hello +auth +select +client|setname +client|setinfo +publish +subscribe +psubscribe +unsubscribe +punsubscribe\n' \
+    printf 'user %s reset on >%s ~nexo-connect-lab:* &nexo.connect.realtime.v1.* +ping +echo +hello +auth +select +client|setname +client|setinfo +publish +subscribe +psubscribe +unsubscribe +punsubscribe +set +get +del +pttl +pexpire +eval\n' \
         "$CONNECT_LAB_REDIS_APP_USER" \
         "$CONNECT_LAB_REDIS_APP_PASSWORD"
 } > "$ACL_FILE"

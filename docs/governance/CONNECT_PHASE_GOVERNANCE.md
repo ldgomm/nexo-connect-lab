@@ -5,11 +5,11 @@
 - Programme: `NEXO_CONNECT_LAB`
 - Repository: `connect-lab`
 - Branch: `main`
-- Accepted phase: `CONNECT.15`
-- Accepted HEAD: `ae661a58465a3503d89f75019de76f249e76bbdb`
+- Accepted phase: `CONNECT.16`
+- Accepted HEAD: `1478ce9f5e7348c5ac72ff3be457ccdc15ca42f9`
 - Immutable user baseline: `558d702bd5e7729721cde71d0e3080513798dcdd`
-- Active phase: `CONNECT.16`
-- Next phase after acceptance: `CONNECT.17`
+- Active phase: `CONNECT.17`
+- Next phase after acceptance: `CONNECT.18`
 
 `CONNECT.07` is the accepted governance commit `e330359...`; its historical
 subject used the temporary label `[CONNECT.01]`. The hash is preserved and the
@@ -90,6 +90,13 @@ self and active conversation participants may receive a coarse state. Unknown,
 blocked and unrelated subjects receive no frame; exact last-seen, device
 topology and durable presence history are forbidden. Versioned v1 frames carry
 only an opaque subject reference and the policy-filtered state.
+
+`CONNECT.17` implements device-scoped Redis presence leases. Authenticated
+WebSockets acquire and refresh bounded TTL keys; compare-owner scripts fence
+stale instances during refresh and release, reconnect rotates ownership, and a
+crash disappears through Redis native expiry. Redis outage degrades presence
+without stopping durable chat, and PostgreSQL receives zero mutable presence
+state.
 
 The empty `docker-compose.watch.yml` is tracked by the accepted user baseline.
 Later phase commits must preserve it byte-for-byte unless the user explicitly

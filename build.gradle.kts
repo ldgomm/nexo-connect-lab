@@ -96,6 +96,9 @@ tasks.register<Test>("semanticAcceptanceTest") {
         includeTestsMatching("*.RedisRealtimeFanoutConfigTest")
         includeTestsMatching("*.EphemeralRealtimeConnectionRegistryTest")
         includeTestsMatching("*.RedisLossRecoveryContractTest")
+        includeTestsMatching("*.PresenceLeaseContractTest")
+        includeTestsMatching("*.RedisPresenceLeaseStoreTest")
+        includeTestsMatching("*.AuthenticatedRealtimePresenceLeaseTest")
     }
 }
 
@@ -147,6 +150,18 @@ tasks.register<Test>("redisEphemeralBoundaryTest") {
         includeTestsMatching("*.ReadinessRoutesTest")
         includeTestsMatching("*.RedisEphemeralConfigTest")
         includeTestsMatching("*.RedisEphemeralRuntimeTest")
+    }
+}
+
+tasks.register<Test>("presenceLeaseTest") {
+    description = "Verifies bounded Redis presence lease ownership, refresh, expiry, and reconnect semantics."
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    filter {
+        includeTestsMatching("*.PresenceLeaseContractTest")
+        includeTestsMatching("*.RedisPresenceLeaseStoreTest")
+        includeTestsMatching("*.AuthenticatedRealtimePresenceLeaseTest")
     }
 }
 
