@@ -70,3 +70,9 @@ a complete stop and a rejoin. Durable readiness remains available, PostgreSQL
 history and receipt cursors remain unchanged, missed live signals are repaired
 through authorised catch-up, and live multi-device fan-out resumes after
 rejoin without acknowledged loss or durable duplicates.
+
+Presence follows the frozen CONNECT.16 privacy contract. Only self and active
+conversation participants may receive the coarse
+`ONLINE|RECENTLY_ONLINE|OFFLINE|HIDDEN` projection. Unknown, blocked and
+unrelated subjects produce no frame; exact last-seen and device topology are
+never exposed. Presence remains ephemeral and outside durable history.

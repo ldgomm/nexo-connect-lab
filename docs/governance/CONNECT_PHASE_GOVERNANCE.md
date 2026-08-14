@@ -5,11 +5,11 @@
 - Programme: `NEXO_CONNECT_LAB`
 - Repository: `connect-lab`
 - Branch: `main`
-- Accepted phase: `CONNECT.14`
-- Accepted HEAD: `92178a12832024b3019e583392fb3a4edee608e7`
+- Accepted phase: `CONNECT.15`
+- Accepted HEAD: `ae661a58465a3503d89f75019de76f249e76bbdb`
 - Immutable user baseline: `558d702bd5e7729721cde71d0e3080513798dcdd`
-- Active phase: `CONNECT.15`
-- Next phase after acceptance: `CONNECT.16`
+- Active phase: `CONNECT.16`
+- Next phase after acceptance: `CONNECT.17`
 
 `CONNECT.07` is the accepted governance commit `e330359...`; its historical
 subject used the temporary label `[CONNECT.01]`. The hash is preserved and the
@@ -84,6 +84,12 @@ to the subject's other authorised devices without sticky sessions.
 rejoin. Durable readiness remains independent, PostgreSQL history and receipt
 cursors remain authoritative, and authorised catch-up repairs every missed
 live notification without acknowledged loss or durable duplication.
+
+`CONNECT.16` freezes the presence privacy contract before implementation. Only
+self and active conversation participants may receive a coarse state. Unknown,
+blocked and unrelated subjects receive no frame; exact last-seen, device
+topology and durable presence history are forbidden. Versioned v1 frames carry
+only an opaque subject reference and the policy-filtered state.
 
 The empty `docker-compose.watch.yml` is tracked by the accepted user baseline.
 Later phase commits must preserve it byte-for-byte unless the user explicitly

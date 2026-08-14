@@ -124,11 +124,13 @@ required_files=(
     docs/architecture/CONNECT_13_MULTI_INSTANCE_REALTIME_FANOUT.md
     docs/architecture/CONNECT_14_MULTI_DEVICE_REALTIME_ROUTING.md
     docs/architecture/CONNECT_15_REDIS_LOSS_RECOVERY.md
+    docs/architecture/CONNECT_16_PRESENCE_PRIVACY_CONTRACT.md
     docs/architecture/connect-multi-instance-fanout-contract.properties
     docs/architecture/connect-redis-ephemeral-boundary.properties
     docs/architecture/connect-realtime-fanout.properties
     docs/architecture/connect-multi-device-routing.properties
     docs/architecture/connect-redis-loss-recovery.properties
+    docs/architecture/connect-presence-privacy-contract.properties
     docs/governance/CONNECT_PHASE_GOVERNANCE.md
     docs/governance/INTELLIJ_FORMATTING.md
     docs/governance/SEMANTIC_ACCEPTANCE_GATES.md
@@ -154,6 +156,7 @@ required_files=(
     scripts/verify-postgres-repository.sh
     scripts/verify-postgres-schema.sh
     scripts/verify-phase-governance.sh
+    scripts/verify-presence-privacy-contract.sh
     scripts/verify-formatting-convergence.sh
     scripts/verify-multi-instance-fanout-architecture.sh
     scripts/verify-multi-instance-realtime-fanout.sh
@@ -338,6 +341,7 @@ bash -n scripts/verify-durable-restart-recovery.sh
 bash -n scripts/verify-postgres-repository.sh
 bash -n scripts/verify-postgres-schema.sh
 bash -n scripts/verify-phase-governance.sh
+bash -n scripts/verify-presence-privacy-contract.sh
 bash -n scripts/verify-formatting-convergence.sh
 bash -n scripts/verify-multi-instance-fanout-architecture.sh
 bash -n scripts/verify-multi-instance-realtime-fanout.sh
@@ -376,6 +380,9 @@ printf 'MULTI_DEVICE_REALTIME_ROUTING_CONTRACT=PASS\n'
 
 ./scripts/verify-redis-loss-recovery.sh
 printf 'REDIS_LOSS_RECOVERY_CONTRACT=PASS\n'
+
+./scripts/verify-presence-privacy-contract.sh
+printf 'PRESENCE_PRIVACY_CONTRACT_GATE=PASS\n'
 
 CONNECT_C5_MIGRATION_DIRECTORY="src/main/resources/db/migration"
 CONNECT_C5_MIGRATION_FILE_COUNT="$(

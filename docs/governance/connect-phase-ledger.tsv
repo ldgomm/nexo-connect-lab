@@ -15,5 +15,6 @@ BASELINE	CONNECT.11	PASS	60a65ddbaa7de04ade07c3332c4d54a7b221d74f	docs(connect):
 BASELINE	CONNECT.12	PASS	655d733b8668011815f66e065d42c5d66c9e555e	feat(connect): [CONNECT.12] add isolated ephemeral Redis boundary
 BASELINE	CONNECT.13	PASS	6442ef285a30f7836d75bba4ddb4452fb56a7a39	feat(connect): [CONNECT.13] add multi-instance realtime fanout
 BASELINE	CONNECT.14	PASS	92178a12832024b3019e583392fb3a4edee608e7	feat(connect): [CONNECT.14] coordinate multi-device realtime sessions
-CURRENT	CONNECT.15	IMPLEMENTING	DISCOVER_BY_SUBJECT	test(connect): [CONNECT.15] prove Redis loss recovery
-NEXT	CONNECT.16	LOCKED	-	docs(connect): [CONNECT.16] freeze presence privacy contract
+BASELINE	CONNECT.15	PASS	ae661a58465a3503d89f75019de76f249e76bbdb	test(connect): [CONNECT.15] prove Redis loss recovery
+CURRENT	CONNECT.16	IMPLEMENTING	DISCOVER_BY_SUBJECT	docs(connect): [CONNECT.16] freeze presence privacy contract
+NEXT	CONNECT.17	LOCKED	-	feat(connect): [CONNECT.17] implement ephemeral presence leases
