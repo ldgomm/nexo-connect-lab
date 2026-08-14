@@ -70,6 +70,33 @@ class RedisPresenceLeaseStoreTest {
     }
 
     @Test
+    fun `flush rejects stale handles and rapid reconnect establishes one owner`() = runBlocking {
+        val state = FakeRedisState()
+        val original = store("instance-a", "lease_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", state)
+        val reconnect = store("instance-b", "lease_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB", state)
+        val oldHandle = (original.acquire(target()) as PresenceLeaseAcquireResult.Acquired).handle
+
+        assertEquals(PresenceLeaseMutationResult.APPLIED, original.refresh(oldHandle))
+        assertEquals(PresenceLeaseMutationResult.APPLIED, original.refresh(oldHandle))
+        assertEquals(1, state.countMatching(original.redisDeviceLeasePattern(target().subjectTarget())))
+
+        state.flush()
+
+        assertEquals(PresenceActivitySnapshot.OFFLINE, original.read(target().subjectTarget()))
+        assertEquals(PresenceLeaseMutationResult.NOT_OWNER, original.refresh(oldHandle))
+        assertEquals(PresenceLeaseMutationResult.NOT_OWNER, original.release(oldHandle))
+
+        val newHandle = (reconnect.acquire(target()) as PresenceLeaseAcquireResult.Acquired).handle
+        assertNotEquals(oldHandle.leaseRef, newHandle.leaseRef)
+        assertEquals(PresenceLeaseMutationResult.NOT_OWNER, original.refresh(oldHandle))
+        assertEquals(PresenceLeaseMutationResult.APPLIED, reconnect.refresh(newHandle))
+        assertEquals(PresenceLeaseMutationResult.APPLIED, reconnect.refresh(newHandle))
+        assertEquals(1, state.countMatching(reconnect.redisDeviceLeasePattern(target().subjectTarget())))
+        original.close()
+        reconnect.close()
+    }
+
+    @Test
     fun `keys are namespace bound fixed length digests without raw identity`() {
         val store = store("instance-a", "lease_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", FakeRedisState())
         val key = store.redisKey(target())
@@ -174,6 +201,15 @@ class RedisPresenceLeaseStoreTest {
 
         fun advance(millis: Long) {
             nowMillis += millis
+        }
+
+        fun flush() {
+            entries.clear()
+        }
+
+        fun countMatching(pattern: String): Int {
+            val prefix = pattern.removeSuffix("*")
+            return entries.keys.toList().count { key -> key.startsWith(prefix) && current(key) != null }
         }
 
         fun set(key: String, owner: String, ttlMillis: Long): Boolean {

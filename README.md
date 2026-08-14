@@ -95,3 +95,8 @@ remains; final disconnect enters only the coarse recent window. Redis relative
 TTL makes the decision independent of application clock skew, and uniform
 relationship/block/mute/visibility policy exposes neither topology nor denial
 reason and never writes mutable presence to PostgreSQL.
+
+Presence and typing resilience is exercised against real isolated Redis with
+flush, extreme clock skew, duplicate refresh, instance crash and rapid
+reconnect injection. Old handles cannot resurrect state, stale keys reach zero,
+and a before/after PostgreSQL schema hash proves durable chat is unchanged.

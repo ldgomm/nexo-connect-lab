@@ -128,6 +128,7 @@ required_files=(
     docs/architecture/CONNECT_17_EPHEMERAL_PRESENCE_LEASES.md
     docs/architecture/CONNECT_18_BOUNDED_TYPING_SIGNALS.md
     docs/architecture/CONNECT_19_PRIVACY_AWARE_PRESENCE_AGGREGATION.md
+    docs/architecture/CONNECT_20_EPHEMERAL_SIGNAL_RESILIENCE.md
     docs/architecture/connect-multi-instance-fanout-contract.properties
     docs/architecture/connect-redis-ephemeral-boundary.properties
     docs/architecture/connect-realtime-fanout.properties
@@ -137,6 +138,7 @@ required_files=(
     docs/architecture/connect-presence-leases.properties
     docs/architecture/connect-typing-signals.properties
     docs/architecture/connect-presence-aggregation.properties
+    docs/architecture/connect-ephemeral-signal-resilience.properties
     docs/governance/CONNECT_PHASE_GOVERNANCE.md
     docs/governance/INTELLIJ_FORMATTING.md
     docs/governance/SEMANTIC_ACCEPTANCE_GATES.md
@@ -169,6 +171,8 @@ required_files=(
     scripts/verify-typing-signals-runtime.sh
     scripts/verify-presence-aggregation.sh
     scripts/verify-presence-aggregation-runtime.sh
+    scripts/verify-ephemeral-signal-resilience.sh
+    scripts/verify-ephemeral-signal-resilience-runtime.sh
     scripts/verify-formatting-convergence.sh
     scripts/verify-multi-instance-fanout-architecture.sh
     scripts/verify-multi-instance-realtime-fanout.sh
@@ -276,6 +280,7 @@ required_files=(
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisTypingLeaseStoreTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisTypingLeaseIntegrationTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisTypingSignalFanoutIntegrationTest.kt
+    src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisEphemeralSignalResilienceIntegrationTest.kt
 )
 
 for required_file in "${required_files[@]}"; do
@@ -384,6 +389,8 @@ bash -n scripts/verify-typing-signals.sh
 bash -n scripts/verify-typing-signals-runtime.sh
 bash -n scripts/verify-presence-aggregation.sh
 bash -n scripts/verify-presence-aggregation-runtime.sh
+bash -n scripts/verify-ephemeral-signal-resilience.sh
+bash -n scripts/verify-ephemeral-signal-resilience-runtime.sh
 bash -n scripts/verify-formatting-convergence.sh
 bash -n scripts/verify-multi-instance-fanout-architecture.sh
 bash -n scripts/verify-multi-instance-realtime-fanout.sh
@@ -434,6 +441,9 @@ printf 'TYPING_SIGNAL_CONTRACT_GATE=PASS\n'
 
 ./scripts/verify-presence-aggregation.sh
 printf 'PRESENCE_AGGREGATION_CONTRACT_GATE=PASS\n'
+
+./scripts/verify-ephemeral-signal-resilience.sh
+printf 'EPHEMERAL_SIGNAL_RESILIENCE_CONTRACT_GATE=PASS\n'
 
 CONNECT_C5_MIGRATION_DIRECTORY="src/main/resources/db/migration"
 CONNECT_C5_MIGRATION_FILE_COUNT="$(
@@ -867,6 +877,9 @@ printf 'REDIS_TYPING_SIGNAL_RUNTIME_CONTRACT=PASS\n'
 
 ./scripts/verify-presence-aggregation-runtime.sh
 printf 'REDIS_PRESENCE_AGGREGATION_RUNTIME_CONTRACT=PASS\n'
+
+./scripts/verify-ephemeral-signal-resilience-runtime.sh
+printf 'EPHEMERAL_SIGNAL_RESILIENCE_RUNTIME_CONTRACT=PASS\n'
 
 ./scripts/verify-postgres-schema.sh
 printf 'POSTGRES_SCHEMA_CONTRACT=PASS\n'

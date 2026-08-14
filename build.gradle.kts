@@ -106,6 +106,7 @@ tasks.register<Test>("semanticAcceptanceTest") {
         includeTestsMatching("*.MultiInstanceTypingSignalFanoutTest")
         includeTestsMatching("*.AuthenticatedRealtimeTypingSignalTest")
         includeTestsMatching("*.PrivacyAwarePresenceAggregatorTest")
+        includeTestsMatching("*.RedisEphemeralSignalResilienceIntegrationTest")
     }
 }
 
@@ -196,6 +197,18 @@ tasks.register<Test>("presenceAggregationTest") {
         includeTestsMatching("*.PrivacyAwarePresenceAggregatorTest")
         includeTestsMatching("*.RedisPresenceLeaseStoreTest")
         includeTestsMatching("*.RedisPresenceAggregationIntegrationTest")
+    }
+}
+
+tasks.register<Test>("ephemeralSignalResilienceTest") {
+    description = "Proves presence and typing resilience across Redis failure injection and reconnects."
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    filter {
+        includeTestsMatching("*.RedisPresenceLeaseStoreTest")
+        includeTestsMatching("*.RedisTypingLeaseStoreTest")
+        includeTestsMatching("*.RedisEphemeralSignalResilienceIntegrationTest")
     }
 }
 

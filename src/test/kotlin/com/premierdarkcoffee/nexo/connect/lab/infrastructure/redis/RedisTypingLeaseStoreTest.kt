@@ -12,6 +12,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class RedisTypingLeaseStoreTest {
@@ -39,11 +40,48 @@ class RedisTypingLeaseStoreTest {
         store.close()
     }
 
-    private fun store(state: FakeRedisState) = RedisTypingLeaseStore(
+    @Test
+    fun `flush rejects stale handles and rapid reconnect keeps one typing lease`() = runBlocking {
+        val state = FakeRedisState()
+        val original = store(
+            state,
+            instanceRef = "instance-a",
+            leaseRef = "typing_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        )
+        val reconnect = store(
+            state,
+            instanceRef = "instance-b",
+            leaseRef = "typing_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+        )
+        val oldHandle = assertIs<TypingLeaseAcquireResult.Acquired>(original.start(target())).handle
+
+        assertIs<TypingLeaseRefreshResult.Refreshed>(original.refresh(oldHandle))
+        assertIs<TypingLeaseRefreshResult.Refreshed>(original.refresh(oldHandle))
+        assertEquals(1, state.countMatching("${TypingLeaseRedisKeyCodec.KEY_PREFIX}*"))
+
+        state.flush()
+
+        assertIs<TypingLeaseRefreshResult.NotOwner>(original.refresh(oldHandle))
+        assertEquals(TypingLeaseReleaseResult.NOT_OWNER, original.stop(oldHandle))
+        val newHandle = assertIs<TypingLeaseAcquireResult.Acquired>(reconnect.start(target())).handle
+        assertNotEquals(oldHandle.leaseRef, newHandle.leaseRef)
+        assertIs<TypingLeaseRefreshResult.NotOwner>(original.refresh(oldHandle))
+        assertIs<TypingLeaseRefreshResult.Refreshed>(reconnect.refresh(newHandle))
+        assertIs<TypingLeaseRefreshResult.Refreshed>(reconnect.refresh(newHandle))
+        assertEquals(1, state.countMatching("${TypingLeaseRedisKeyCodec.KEY_PREFIX}*"))
+        original.close()
+        reconnect.close()
+    }
+
+    private fun store(
+        state: FakeRedisState,
+        instanceRef: String = "instance-a",
+        leaseRef: String = "typing_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    ) = RedisTypingLeaseStore(
         redisConfig = redisConfig(),
-        typingConfig = RedisTypingLeaseConfig("instance-a", Duration.ofSeconds(1)),
+        typingConfig = RedisTypingLeaseConfig(instanceRef, Duration.ofSeconds(1)),
         provider = FakeProvider(state),
-        leaseRefFactory = TypingLeaseRefFactory { "typing_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" },
+        leaseRefFactory = TypingLeaseRefFactory { leaseRef },
     )
 
     private fun target() = TypingLeaseTarget(
@@ -102,6 +140,15 @@ class RedisTypingLeaseStoreTest {
 
         fun advance(millis: Long) {
             now += millis
+        }
+
+        fun flush() {
+            entries.clear()
+        }
+
+        fun countMatching(pattern: String): Int {
+            val prefix = pattern.removeSuffix("*")
+            return entries.keys.toList().count { key -> key.startsWith(prefix) && current(key) != null }
         }
 
         fun set(key: String, owner: String, ttlMillis: Long): Boolean {

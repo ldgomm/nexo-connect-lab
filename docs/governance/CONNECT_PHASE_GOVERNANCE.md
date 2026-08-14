@@ -5,11 +5,11 @@
 - Programme: `NEXO_CONNECT_LAB`
 - Repository: `connect-lab`
 - Branch: `main`
-- Accepted phase: `CONNECT.18`
-- Accepted HEAD: `7273f10394d5c58831e27007a3c5cee4b3451987`
+- Accepted phase: `CONNECT.19`
+- Accepted HEAD: `7fa02c47827380bda419f426dc09f01b5bd58c47`
 - Immutable user baseline: `558d702bd5e7729721cde71d0e3080513798dcdd`
-- Active phase: `CONNECT.19`
-- Next phase after acceptance: `CONNECT.20`
+- Active phase: `CONNECT.20`
+- Next phase after acceptance: `CONNECT.21`
 
 `CONNECT.07` is the accepted governance commit `e330359...`; its historical
 subject used the temporary label `[CONNECT.01]`. The hash is preserved and the
@@ -111,6 +111,12 @@ to a bounded coarse recent window driven only by Redis relative TTL.
 Relationship, future block/mute hooks and visibility are evaluated in a
 uniform pipeline, while output excludes device counts, exact time and all
 routing topology.
+
+`CONNECT.20` injects Redis flush, extreme application clock skew, duplicate
+refreshes, instance crash and rapid reconnect into presence and typing. Old
+handles cannot resurrect flushed state, fresh instance ownership is fenced,
+all ephemeral keys expire, and the complete PostgreSQL durable hash remains
+unchanged.
 
 The empty `docker-compose.watch.yml` is tracked by the accepted user baseline.
 Later phase commits must preserve it byte-for-byte unless the user explicitly

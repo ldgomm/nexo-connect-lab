@@ -19,5 +19,6 @@ BASELINE	CONNECT.15	PASS	ae661a58465a3503d89f75019de76f249e76bbdb	test(connect):
 BASELINE	CONNECT.16	PASS	1478ce9f5e7348c5ac72ff3be457ccdc15ca42f9	docs(connect): [CONNECT.16] freeze presence privacy contract
 BASELINE	CONNECT.17	PASS	dda283df8687030d9efcc25ad504766690ceef93	feat(connect): [CONNECT.17] implement ephemeral presence leases
 BASELINE	CONNECT.18	PASS	7273f10394d5c58831e27007a3c5cee4b3451987	feat(connect): [CONNECT.18] implement bounded typing signals
-CURRENT	CONNECT.19	IMPLEMENTING	DISCOVER_BY_SUBJECT	feat(connect): [CONNECT.19] aggregate privacy-aware presence
-NEXT	CONNECT.20	LOCKED	-	test(connect): [CONNECT.20] prove ephemeral signal resilience
+BASELINE	CONNECT.19	PASS	7fa02c47827380bda419f426dc09f01b5bd58c47	feat(connect): [CONNECT.19] aggregate privacy-aware presence
+CURRENT	CONNECT.20	IMPLEMENTING	DISCOVER_BY_SUBJECT	test(connect): [CONNECT.20] prove ephemeral signal resilience
+NEXT	CONNECT.21	LOCKED	-	feat(connect): [CONNECT.21] add protected push device registry
