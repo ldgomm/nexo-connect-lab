@@ -30,6 +30,7 @@ class RealtimeFanoutEnvelopeCodec(private val json: Json) {
             when (delivery.channel) {
                 RealtimeFanoutChannel.MESSAGE_CREATED -> RealtimeFanoutEventType.MESSAGE_CREATED
                 RealtimeFanoutChannel.RECEIPT_ADVANCED -> RealtimeFanoutEventType.RECEIPT_ADVANCED
+                RealtimeFanoutChannel.TYPING_STATE_CHANGED -> return null
             }
         return envelope.takeIf {
             it.validateEnvelope(expectedEventType) is RealtimeFanoutEnvelopeValidation.Valid

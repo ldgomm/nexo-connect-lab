@@ -54,7 +54,7 @@ if grep -REn 'OFFSET|INSERT[[:space:]]|UPDATE[[:space:]]|DELETE[[:space:]]|TRUNC
     fail "READ_MODEL_CONTAINS_FORBIDDEN_MUTATION_OR_OFFSET"
 fi
 
-if grep -REn '(Jedis|Lettuce|RedisClient|redis:/[/]|TYPING_START|TYPING_STOP|PRESENCE_CHANGED)' \
+if grep -REn '(Jedis|Lettuce|RedisClient|redis:/[/]|PRESENCE_CHANGED)' \
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime \
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/realtime \
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes \

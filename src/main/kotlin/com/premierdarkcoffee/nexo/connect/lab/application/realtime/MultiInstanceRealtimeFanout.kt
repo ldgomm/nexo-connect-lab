@@ -2,6 +2,7 @@ package com.premierdarkcoffee.nexo.connect.lab.application.realtime
 
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.DurableMessageCreatedEvent
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.DurableReceiptCursorEvent
+import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.EphemeralTypingSignal
 import kotlinx.coroutines.CancellationException
 import java.time.Duration
 import java.util.LinkedHashMap
@@ -12,11 +13,13 @@ class MultiInstanceRealtimeFanout(
     private val transport: EphemeralRealtimeFanoutTransport?,
     private val payloadLoader: () -> AuthorisedDurableFanoutPayloadLoader?,
     private val codec: RealtimeFanoutEnvelopeCodec,
+    private val typingCodec: TypingSignalEnvelopeCodec? = null,
     dedupe: BoundedRealtimeFanoutDedupe = BoundedRealtimeFanoutDedupe(),
 ) : MessageCreatedEventPublisher {
     private val envelopeFactory = transport?.let { DurableRealtimeFanoutEnvelopeFactory(it.localInstanceRef) }
     private val started = AtomicBoolean()
     private val dedupe = dedupe
+    val localInstanceRef: String = transport?.localInstanceRef ?: "single-instance"
 
     fun start() {
         val activeTransport = transport ?: return
@@ -43,6 +46,17 @@ class MultiInstanceRealtimeFanout(
         return localHub.publishReceipt(event, excludedRegistration)
     }
 
+    suspend fun publishTyping(
+        signal: EphemeralTypingSignal,
+        excludedRegistration: RealtimeConnectionRegistration? = null,
+    ): TypingSignalPublicationReport {
+        val encoded = typingCodec?.encode(signal)
+        if (encoded != null) {
+            publishEphemeral(RealtimeFanoutChannel.TYPING_STATE_CHANGED, encoded)
+        }
+        return localHub.publishTyping(signal, excludedRegistration)
+    }
+
     private suspend fun publishEphemeral(channel: RealtimeFanoutChannel, payload: String) {
         try {
             transport?.publish(channel, payload)
@@ -55,6 +69,13 @@ class MultiInstanceRealtimeFanout(
 
     private suspend fun consume(delivery: EphemeralRealtimeFanoutDelivery) {
         val activeTransport = transport ?: return
+        if (delivery.channel == RealtimeFanoutChannel.TYPING_STATE_CHANGED) {
+            val signal = typingCodec?.decode(delivery) ?: return
+            if (signal.originInstanceRef == activeTransport.localInstanceRef) return
+            if (!dedupe.markIfNew(signal.eventId)) return
+            localHub.publishTyping(signal)
+            return
+        }
         val loader = payloadLoader() ?: return
         val envelope = codec.decode(delivery) ?: return
         if (envelope.originInstanceRef == activeTransport.localInstanceRef) return
@@ -63,6 +84,7 @@ class MultiInstanceRealtimeFanout(
         when (delivery.channel) {
             RealtimeFanoutChannel.MESSAGE_CREATED -> localHub.publishRemoteMessage(envelope, loader)
             RealtimeFanoutChannel.RECEIPT_ADVANCED -> localHub.publishRemoteReceipt(envelope, loader)
+            RealtimeFanoutChannel.TYPING_STATE_CHANGED -> Unit
         }
     }
 }

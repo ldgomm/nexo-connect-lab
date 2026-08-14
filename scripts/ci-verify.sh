@@ -126,6 +126,7 @@ required_files=(
     docs/architecture/CONNECT_15_REDIS_LOSS_RECOVERY.md
     docs/architecture/CONNECT_16_PRESENCE_PRIVACY_CONTRACT.md
     docs/architecture/CONNECT_17_EPHEMERAL_PRESENCE_LEASES.md
+    docs/architecture/CONNECT_18_BOUNDED_TYPING_SIGNALS.md
     docs/architecture/connect-multi-instance-fanout-contract.properties
     docs/architecture/connect-redis-ephemeral-boundary.properties
     docs/architecture/connect-realtime-fanout.properties
@@ -133,6 +134,7 @@ required_files=(
     docs/architecture/connect-redis-loss-recovery.properties
     docs/architecture/connect-presence-privacy-contract.properties
     docs/architecture/connect-presence-leases.properties
+    docs/architecture/connect-typing-signals.properties
     docs/governance/CONNECT_PHASE_GOVERNANCE.md
     docs/governance/INTELLIJ_FORMATTING.md
     docs/governance/SEMANTIC_ACCEPTANCE_GATES.md
@@ -161,6 +163,8 @@ required_files=(
     scripts/verify-presence-privacy-contract.sh
     scripts/verify-presence-leases.sh
     scripts/verify-presence-leases-runtime.sh
+    scripts/verify-typing-signals.sh
+    scripts/verify-typing-signals-runtime.sh
     scripts/verify-formatting-convergence.sh
     scripts/verify-multi-instance-fanout-architecture.sh
     scripts/verify-multi-instance-realtime-fanout.sh
@@ -185,7 +189,10 @@ required_files=(
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/AuthorisedDurableFanoutPayloadLoader.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/MultiInstanceRealtimeFanout.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/EphemeralRealtimeConnectionRegistry.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/TypingSignalEnvelopeCodec.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/presence/EphemeralPresenceLeaseStore.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/typing/EphemeralTypingLeaseStore.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/typing/TypingSignalRateLimiter.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/realtime/RealtimeTransport.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/realtime/RealtimeTransportHardening.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt
@@ -194,6 +201,7 @@ required_files=(
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/DurableMessageCreatedEvent.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/DurableReceiptCursor.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/RealtimeFanoutEnvelope.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/EphemeralTypingSignal.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresDurableReceiptCursorRepository.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisEphemeralConfig.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisEphemeralCircuit.kt
@@ -201,6 +209,8 @@ required_files=(
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisRealtimeFanoutLifecycle.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisPresenceLeaseStore.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisPresenceLeaseLifecycle.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisTypingLeaseStore.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisTypingLeaseLifecycle.kt
     src/main/resources/db/migration/V5__durable_receipt_cursors.sql
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/conversation/DurableConversationListing.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/conversation/CreateBusinessClientConversationCommand.kt
@@ -251,6 +261,14 @@ required_files=(
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisPresenceLeaseStoreTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisPresenceLeaseIntegrationTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimePresenceLeaseTest.kt
+    src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeTypingSignalTest.kt
+    src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/typing/TypingSignalRateLimiterTest.kt
+    src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/AuthorizedTypingSignalFanoutTest.kt
+    src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/MultiInstanceTypingSignalFanoutTest.kt
+    src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/TypingSignalProtocolTest.kt
+    src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisTypingLeaseStoreTest.kt
+    src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisTypingLeaseIntegrationTest.kt
+    src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisTypingSignalFanoutIntegrationTest.kt
 )
 
 for required_file in "${required_files[@]}"; do
@@ -355,6 +373,8 @@ bash -n scripts/verify-phase-governance.sh
 bash -n scripts/verify-presence-privacy-contract.sh
 bash -n scripts/verify-presence-leases.sh
 bash -n scripts/verify-presence-leases-runtime.sh
+bash -n scripts/verify-typing-signals.sh
+bash -n scripts/verify-typing-signals-runtime.sh
 bash -n scripts/verify-formatting-convergence.sh
 bash -n scripts/verify-multi-instance-fanout-architecture.sh
 bash -n scripts/verify-multi-instance-realtime-fanout.sh
@@ -399,6 +419,9 @@ printf 'PRESENCE_PRIVACY_CONTRACT_GATE=PASS\n'
 
 ./scripts/verify-presence-leases.sh
 printf 'PRESENCE_LEASE_CONTRACT_GATE=PASS\n'
+
+./scripts/verify-typing-signals.sh
+printf 'TYPING_SIGNAL_CONTRACT_GATE=PASS\n'
 
 CONNECT_C5_MIGRATION_DIRECTORY="src/main/resources/db/migration"
 CONNECT_C5_MIGRATION_FILE_COUNT="$(
@@ -510,7 +533,7 @@ if ! grep -Fq 'io.ktor:ktor-version-catalog:3.5.2' settings.gradle.kts ||
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/RealtimeProtocol.kt ||
     ! grep -Fq 'BINARY_FRAMES_UNSUPPORTED' \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt ||
-    grep -En 'TYPING_(START|STOP)|PRESENCE_CHANGED|RESYNC_REQUIRED' \
+    grep -En 'PRESENCE_CHANGED|RESYNC_REQUIRED' \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/realtime/RealtimeTransport.kt \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/RealtimeProtocol.kt ||
@@ -539,7 +562,7 @@ if ! grep -Fq 'ClientRealtimeFrameType.SUBSCRIBE_CONVERSATION' \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt ||
     ! grep -Fq 'MAX_CONVERSATION_SUBSCRIPTIONS = 100' \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/RealtimeProtocol.kt ||
-    grep -En 'TYPING_(START|STOP)|PRESENCE_CHANGED|RESYNC_REQUIRED' \
+    grep -En 'PRESENCE_CHANGED|RESYNC_REQUIRED' \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/ConversationSubscriptionAuthorizer.kt \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/realtime/RealtimeTransport.kt \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt \
@@ -565,7 +588,7 @@ if ! grep -Fq 'post("/v1/conversations/{conversationRef}/messages")' \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/AuthorizedConversationEventHub.kt ||
     ! grep -Fq 'DurableTextRepositoryResult.ReplayExisting' \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/DurableTextMessageRoutes.kt ||
-    grep -En 'TYPING_(START|STOP)|PRESENCE_CHANGED|RESYNC_REQUIRED' \
+    grep -En 'PRESENCE_CHANGED|RESYNC_REQUIRED' \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/AuthorizedConversationEventHub.kt \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/DurableTextMessageCoordinator.kt \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/realtime/RealtimeTransport.kt \
@@ -618,7 +641,7 @@ if ! grep -Fq 'const val ACK_DELIVERY = "ACK_DELIVERY"' \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt ||
     ! grep -Fq 'DURABLE_RECEIPT_RECONNECT_SNAPSHOT=PASS' \
         scripts/verify-durable-receipts.sh ||
-    grep -REn '(Jedis|Lettuce|RedisClient|redis://|TYPING_START|TYPING_STOP|PRESENCE_CHANGED)' \
+    grep -REn '(Jedis|Lettuce|RedisClient|redis://|PRESENCE_CHANGED)' \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/DurableReceiptCursorService.kt \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresDurableReceiptCursorRepository.kt \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt; then
@@ -651,7 +674,7 @@ if ! grep -Fq 'class BoundedRealtimeOutboundSender' \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/RealtimeProtocol.kt ||
     ! grep -Fq 'IDLE_TIMEOUT_SECONDS = 15' \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/RealtimeProtocol.kt ||
-    grep -REn '(Jedis|Lettuce|RedisClient|redis://|TYPING_START|TYPING_STOP|PRESENCE_CHANGED)' \
+    grep -REn '(Jedis|Lettuce|RedisClient|redis://|PRESENCE_CHANGED)' \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/realtime/RealtimeTransportHardening.kt \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt; then
     printf 'CI_STATIC_CONTRACT=FAIL\n' >&2
@@ -826,6 +849,9 @@ printf 'MULTI_DEVICE_REALTIME_ROUTING_RUNTIME_CONTRACT=PASS\n'
 
 ./scripts/verify-presence-leases-runtime.sh
 printf 'REDIS_PRESENCE_LEASE_RUNTIME_CONTRACT=PASS\n'
+
+./scripts/verify-typing-signals-runtime.sh
+printf 'REDIS_TYPING_SIGNAL_RUNTIME_CONTRACT=PASS\n'
 
 ./scripts/verify-postgres-schema.sh
 printf 'POSTGRES_SCHEMA_CONTRACT=PASS\n'

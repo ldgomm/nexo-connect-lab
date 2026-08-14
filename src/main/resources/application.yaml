@@ -8,6 +8,7 @@ ktor:
       - com.premierdarkcoffee.nexo.connect.lab.infrastructure.redis.RedisEphemeralLifecycleKt.configureRedisEphemeralLifecycle
       - com.premierdarkcoffee.nexo.connect.lab.infrastructure.redis.RedisRealtimeFanoutLifecycleKt.configureRedisRealtimeFanoutLifecycle
       - com.premierdarkcoffee.nexo.connect.lab.infrastructure.redis.RedisPresenceLeaseLifecycleKt.configureRedisPresenceLeaseLifecycle
+      - com.premierdarkcoffee.nexo.connect.lab.infrastructure.redis.RedisTypingLeaseLifecycleKt.configureRedisTypingLeaseLifecycle
       - com.premierdarkcoffee.nexo.connect.lab.backend.realtime.RealtimeTransportKt.configureAuthenticatedRealtimeTransport
       - com.premierdarkcoffee.nexo.connect.lab.backend.routes.RoutingKt.configureRouting
 

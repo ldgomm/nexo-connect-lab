@@ -16,7 +16,10 @@ import com.premierdarkcoffee.nexo.connect.lab.application.realtime.MultiInstance
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.PostgresAuthorisedDurableFanoutPayloadLoader
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.RealtimeFanoutEnvelopeCodec
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.RepositoryConversationSubscriptionAuthorizer
+import com.premierdarkcoffee.nexo.connect.lab.application.realtime.TypingSignalEnvelopeCodec
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.UnavailableConversationSubscriptionAuthorizer
+import com.premierdarkcoffee.nexo.connect.lab.application.typing.EphemeralTypingLeaseStore
+import com.premierdarkcoffee.nexo.connect.lab.application.typing.TypingSignalRateLimiter
 import com.premierdarkcoffee.nexo.connect.lab.domain.identity.ConnectPrincipal
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.RealtimeProtocol
 import com.premierdarkcoffee.nexo.connect.lab.infrastructure.identity.SyntheticRealtimeIdentityRegistry
@@ -26,6 +29,7 @@ import com.premierdarkcoffee.nexo.connect.lab.infrastructure.persistence.postgre
 import com.premierdarkcoffee.nexo.connect.lab.infrastructure.persistence.postgres.durableTextRepositoryOrNull
 import com.premierdarkcoffee.nexo.connect.lab.infrastructure.redis.redisPresenceLeaseStoreOrNull
 import com.premierdarkcoffee.nexo.connect.lab.infrastructure.redis.redisRealtimeFanoutTransportOrNull
+import com.premierdarkcoffee.nexo.connect.lab.infrastructure.redis.redisTypingLeaseStoreOrNull
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
 import io.ktor.server.auth.Authentication
@@ -58,6 +62,8 @@ internal class AuthenticatedRealtimeRuntime(
     val connectionLimiter: RealtimeConnectionLimiter,
     val hardeningConfig: RealtimeTransportHardeningConfig,
     val presenceLeaseStore: EphemeralPresenceLeaseStore?,
+    val typingLeaseStore: EphemeralTypingLeaseStore?,
+    val typingRateLimiterFactory: () -> TypingSignalRateLimiter,
 )
 
 private val RealtimeRuntimeKey =
@@ -84,6 +90,8 @@ internal fun Application.installAuthenticatedRealtimeTransport(
     maxConversationSubscriptions: Int = RealtimeProtocol.MAX_CONVERSATION_SUBSCRIPTIONS,
     hardeningConfig: RealtimeTransportHardeningConfig = RealtimeTransportHardeningConfig(),
     presenceLeaseStore: EphemeralPresenceLeaseStore? = redisPresenceLeaseStoreOrNull(),
+    typingLeaseStore: EphemeralTypingLeaseStore? = redisTypingLeaseStoreOrNull(),
+    typingRateLimiterFactory: () -> TypingSignalRateLimiter = ::TypingSignalRateLimiter,
 ) {
     require(maxConversationSubscriptions in 1..RealtimeProtocol.MAX_CONVERSATION_SUBSCRIPTIONS) {
         "maxConversationSubscriptions must be between 1 and ${RealtimeProtocol.MAX_CONVERSATION_SUBSCRIPTIONS}"
@@ -108,6 +116,7 @@ internal fun Application.installAuthenticatedRealtimeTransport(
             transport = redisRealtimeFanoutTransportOrNull(),
             payloadLoader = { authorisedFanoutPayloadLoader },
             codec = RealtimeFanoutEnvelopeCodec(protocolJson),
+            typingCodec = TypingSignalEnvelopeCodec(protocolJson),
         )
     val durableTextMessageCoordinator =
         (durableTextRepository ?: durableTextRepositoryOrNull())?.let { repository ->
@@ -154,6 +163,8 @@ internal fun Application.installAuthenticatedRealtimeTransport(
             connectionLimiter = RealtimeConnectionLimiter(hardeningConfig.maxConcurrentConnections),
             hardeningConfig = hardeningConfig,
             presenceLeaseStore = presenceLeaseStore,
+            typingLeaseStore = typingLeaseStore,
+            typingRateLimiterFactory = typingRateLimiterFactory,
         ),
     )
 

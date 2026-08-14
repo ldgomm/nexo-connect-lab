@@ -82,3 +82,9 @@ isolated Redis namespace. Heartbeats refresh a 45-second TTL every 15 seconds;
 release is owner checked, reconnect rotates ownership, and a crash disappears
 through native expiry. Keys contain only bounded digests, Redis loss never
 blocks durable chat, and PostgreSQL receives zero mutable presence state.
+
+Typing is a versioned, conversation-authorised six-second lease. Start and
+refresh are rate limited per WebSocket, stop and disconnect clear owned leases,
+and crashes expire through Redis TTL. Only freshly authorised subscribers
+receive the bounded state; typing never enters PostgreSQL history and exposes
+no device or instance topology.

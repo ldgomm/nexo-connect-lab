@@ -5,11 +5,11 @@
 - Programme: `NEXO_CONNECT_LAB`
 - Repository: `connect-lab`
 - Branch: `main`
-- Accepted phase: `CONNECT.16`
-- Accepted HEAD: `1478ce9f5e7348c5ac72ff3be457ccdc15ca42f9`
+- Accepted phase: `CONNECT.17`
+- Accepted HEAD: `dda283df8687030d9efcc25ad504766690ceef93`
 - Immutable user baseline: `558d702bd5e7729721cde71d0e3080513798dcdd`
-- Active phase: `CONNECT.17`
-- Next phase after acceptance: `CONNECT.18`
+- Active phase: `CONNECT.18`
+- Next phase after acceptance: `CONNECT.19`
 
 `CONNECT.07` is the accepted governance commit `e330359...`; its historical
 subject used the temporary label `[CONNECT.01]`. The hash is preserved and the
@@ -97,6 +97,13 @@ stale instances during refresh and release, reconnect rotates ownership, and a
 crash disappears through Redis native expiry. Redis outage degrades presence
 without stopping durable chat, and PostgreSQL receives zero mutable presence
 state.
+
+`CONNECT.18` implements bounded typing signals. Authenticated subscribed
+WebSockets start, refresh and stop six-second Redis leases through a versioned
+frame; every sender and recipient is freshly conversation-authorised. A
+per-connection sliding window rejects floods, multi-instance Pub/Sub excludes
+the exact origin, PostgreSQL receives zero typing writes, and client frames
+expose neither device nor instance topology.
 
 The empty `docker-compose.watch.yml` is tracked by the accepted user baseline.
 Later phase commits must preserve it byte-for-byte unless the user explicitly

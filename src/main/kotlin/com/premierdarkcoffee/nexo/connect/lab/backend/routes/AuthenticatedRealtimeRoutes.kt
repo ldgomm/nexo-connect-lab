@@ -18,6 +18,12 @@ import com.premierdarkcoffee.nexo.connect.lab.application.realtime.LoadDurableCo
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.MessageCreatedEventSink
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.RealtimeConnectionRegistration
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.ReceiptCursorEventSink
+import com.premierdarkcoffee.nexo.connect.lab.application.realtime.TypingSignalSink
+import com.premierdarkcoffee.nexo.connect.lab.application.typing.TypingLeaseAcquireResult
+import com.premierdarkcoffee.nexo.connect.lab.application.typing.TypingLeaseHandle
+import com.premierdarkcoffee.nexo.connect.lab.application.typing.TypingLeaseRefreshResult
+import com.premierdarkcoffee.nexo.connect.lab.application.typing.TypingLeaseTarget
+import com.premierdarkcoffee.nexo.connect.lab.application.typing.TypingSignalRateLimiter
 import com.premierdarkcoffee.nexo.connect.lab.backend.realtime.AuthenticatedConnectPrincipal
 import com.premierdarkcoffee.nexo.connect.lab.backend.realtime.BoundedRealtimeOutboundSender
 import com.premierdarkcoffee.nexo.connect.lab.backend.realtime.REALTIME_AUTH_PROVIDER
@@ -28,11 +34,13 @@ import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.ClientRealtimeFram
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.ClientRealtimeFrameValidation
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.DurableMessageCreatedEvent
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.DurableReceiptCursorEvent
+import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.EphemeralTypingSignal
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.RealtimeMessageCreatedPayload
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.RealtimeProtocol
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.RealtimeProtocolError
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.RealtimeReceiptCursorPayload
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.RealtimeRoutingRefs
+import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.RealtimeTypingPayload
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.ServerRealtimeFrame
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.ServerRealtimeFrameType
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.validateEnvelope
@@ -101,6 +109,10 @@ fun Route.authenticatedRealtimeRoutes(application: Application) {
                         ReceiptCursorEventSink { event ->
                             sendReceiptCursor(runtime, event)
                         },
+                        typingSink =
+                        TypingSignalSink { signal ->
+                            sendTypingSignal(runtime, signal)
+                        },
                     )
                 } catch (failure: Exception) {
                     outboundSender.shutdown()
@@ -137,6 +149,9 @@ fun Route.authenticatedRealtimeRoutes(application: Application) {
                             )
                     }
                 }
+            val subscribedConversationRefs = linkedSetOf<String>()
+            val typingHandles = linkedMapOf<String, TypingLeaseHandle>()
+            val typingRateLimiter = runtime.typingRateLimiterFactory()
 
             try {
                 sendServerFrame(
@@ -159,7 +174,6 @@ fun Route.authenticatedRealtimeRoutes(application: Application) {
                     ),
                 )
 
-                val subscribedConversationRefs = linkedSetOf<String>()
                 for (frame in incoming) {
                     when (frame) {
                         is Frame.Text -> {
@@ -196,6 +210,8 @@ fun Route.authenticatedRealtimeRoutes(application: Application) {
                                         authenticated = authenticated,
                                         registration = registration,
                                         subscribedConversationRefs = subscribedConversationRefs,
+                                        typingHandles = typingHandles,
+                                        typingRateLimiter = typingRateLimiter,
                                         frame = clientFrame,
                                     )
 
@@ -222,6 +238,7 @@ fun Route.authenticatedRealtimeRoutes(application: Application) {
                 }
             } finally {
                 registryRefreshJob.cancelAndJoin()
+                releaseTypingLeases(runtime, registration, typingHandles)
                 releasePresenceLease(runtime.presenceLeaseStore, presenceHandle)
                 runtime.conversationEventHub.unregister(registration)
                 outboundSender.shutdown()
@@ -265,6 +282,8 @@ private suspend fun DefaultWebSocketServerSession.handleClientFrame(
     authenticated: AuthenticatedConnectPrincipal,
     registration: RealtimeConnectionRegistration,
     subscribedConversationRefs: MutableSet<String>,
+    typingHandles: MutableMap<String, TypingLeaseHandle>,
+    typingRateLimiter: TypingSignalRateLimiter,
     frame: ClientRealtimeFrame,
 ) {
     when (frame.type) {
@@ -311,9 +330,145 @@ private suspend fun DefaultWebSocketServerSession.handleClientFrame(
                 advance = DurableReceiptAdvance.READ,
             )
 
+        ClientRealtimeFrameType.TYPING_START,
+        ClientRealtimeFrameType.TYPING_STOP,
+        -> handleTypingSignal(
+            runtime = runtime,
+            authenticated = authenticated,
+            registration = registration,
+            subscribedConversationRefs = subscribedConversationRefs,
+            typingHandles = typingHandles,
+            rateLimiter = typingRateLimiter,
+            frame = frame,
+        )
+
         else ->
             sendProtocolError(runtime, "UNSUPPORTED_FRAME_TYPE", false, frame.correlationId)
     }
+}
+
+private suspend fun DefaultWebSocketServerSession.handleTypingSignal(
+    runtime: com.premierdarkcoffee.nexo.connect.lab.backend.realtime.AuthenticatedRealtimeRuntime,
+    authenticated: AuthenticatedConnectPrincipal,
+    registration: RealtimeConnectionRegistration,
+    subscribedConversationRefs: Set<String>,
+    typingHandles: MutableMap<String, TypingLeaseHandle>,
+    rateLimiter: TypingSignalRateLimiter,
+    frame: ClientRealtimeFrame,
+) {
+    if (!rateLimiter.tryAcquire()) {
+        sendProtocolError(runtime, "TYPING_RATE_LIMITED", true, frame.correlationId)
+        return
+    }
+    val conversationRef = checkNotNull(frame.conversationRef)
+    if (conversationRef !in subscribedConversationRefs) {
+        sendProtocolError(runtime, "CONVERSATION_NOT_SUBSCRIBED", false, frame.correlationId)
+        return
+    }
+    when (authorizeConversation(runtime, authenticated, conversationRef)) {
+        is ConversationSubscriptionAuthorizationResult.Authorized -> Unit
+
+        ConversationSubscriptionAuthorizationResult.NotFoundOrDenied -> {
+            sendProtocolError(runtime, "CONVERSATION_NOT_FOUND_OR_DENIED", false, frame.correlationId)
+            return
+        }
+
+        ConversationSubscriptionAuthorizationResult.Unavailable -> {
+            sendProtocolError(runtime, "SUBSCRIPTION_SERVICE_UNAVAILABLE", true, frame.correlationId)
+            return
+        }
+    }
+
+    if (frame.type == ClientRealtimeFrameType.TYPING_STOP) {
+        val handle = typingHandles.remove(conversationRef) ?: return
+        runtime.typingLeaseStore?.stop(handle)
+        runtime.multiInstanceFanout.publishTyping(
+            typingSignal(runtime, authenticated, conversationRef, active = false, expiresInMillis = 0),
+            excludedRegistration = registration,
+        )
+        return
+    }
+
+    val store = runtime.typingLeaseStore
+    if (store == null) {
+        sendProtocolError(runtime, "TYPING_SERVICE_UNAVAILABLE", true, frame.correlationId)
+        return
+    }
+    val target =
+        TypingLeaseTarget(
+            subjectRef = authenticated.connectPrincipal.subjectRef,
+            actorType = authenticated.connectPrincipal.actorType,
+            platformScopeRef = authenticated.connectPrincipal.platformScopeRef,
+            conversationRef = conversationRef,
+            deviceRef = registration.deviceRef,
+        )
+    val current = typingHandles[conversationRef]
+    val acquired =
+        if (current == null) {
+            store.start(target)
+        } else {
+            when (val refreshed = store.refresh(current)) {
+                is TypingLeaseRefreshResult.Refreshed ->
+                    TypingLeaseAcquireResult.Acquired(current, refreshed.expiresInMillis)
+
+                TypingLeaseRefreshResult.NotOwner -> store.start(target)
+
+                TypingLeaseRefreshResult.Unavailable -> TypingLeaseAcquireResult.Unavailable
+            }
+        }
+    when (acquired) {
+        is TypingLeaseAcquireResult.Acquired -> {
+            typingHandles[conversationRef] = acquired.handle
+            runtime.multiInstanceFanout.publishTyping(
+                typingSignal(runtime, authenticated, conversationRef, active = true, acquired.expiresInMillis),
+                excludedRegistration = registration,
+            )
+        }
+
+        TypingLeaseAcquireResult.Unavailable ->
+            sendProtocolError(runtime, "TYPING_SERVICE_UNAVAILABLE", true, frame.correlationId)
+    }
+}
+
+private fun typingSignal(
+    runtime: com.premierdarkcoffee.nexo.connect.lab.backend.realtime.AuthenticatedRealtimeRuntime,
+    authenticated: AuthenticatedConnectPrincipal,
+    conversationRef: String,
+    active: Boolean,
+    expiresInMillis: Long,
+): EphemeralTypingSignal = EphemeralTypingSignal(
+    eventId = runtime.eventIdFactory(),
+    conversationRef = conversationRef,
+    subjectRef = authenticated.connectPrincipal.subjectRef,
+    actorType = authenticated.connectPrincipal.actorType,
+    active = active,
+    expiresInMillis = expiresInMillis,
+    occurredAt = runtime.clock.instant(),
+    originInstanceRef = runtime.multiInstanceFanout.localInstanceRef,
+)
+
+private suspend fun releaseTypingLeases(
+    runtime: com.premierdarkcoffee.nexo.connect.lab.backend.realtime.AuthenticatedRealtimeRuntime,
+    registration: RealtimeConnectionRegistration,
+    typingHandles: MutableMap<String, TypingLeaseHandle>,
+) {
+    typingHandles.values.toList().forEach { handle ->
+        runtime.typingLeaseStore?.stop(handle)
+        runtime.multiInstanceFanout.publishTyping(
+            EphemeralTypingSignal(
+                eventId = runtime.eventIdFactory(),
+                conversationRef = handle.target.conversationRef,
+                subjectRef = handle.target.subjectRef,
+                actorType = handle.target.actorType,
+                active = false,
+                expiresInMillis = 0,
+                occurredAt = runtime.clock.instant(),
+                originInstanceRef = runtime.multiInstanceFanout.localInstanceRef,
+            ),
+            excludedRegistration = registration,
+        )
+    }
+    typingHandles.clear()
 }
 
 private suspend fun DefaultWebSocketServerSession.subscribeConversation(
@@ -641,6 +796,28 @@ private suspend fun DefaultWebSocketServerSession.sendReceiptCursor(
                 readAt = cursor.readAt?.toString(),
                 updatedAt = cursor.updatedAt.toString(),
                 version = cursor.version,
+            ),
+        ),
+    )
+}
+
+private suspend fun DefaultWebSocketServerSession.sendTypingSignal(
+    runtime: com.premierdarkcoffee.nexo.connect.lab.backend.realtime.AuthenticatedRealtimeRuntime,
+    signal: EphemeralTypingSignal,
+) {
+    sendServerFrame(
+        runtime,
+        ServerRealtimeFrame(
+            type = ServerRealtimeFrameType.TYPING_STATE_CHANGED,
+            eventId = runtime.eventIdFactory(),
+            serverTimestamp = runtime.clock.instant().toString(),
+            conversationRef = signal.conversationRef,
+            typing =
+            RealtimeTypingPayload(
+                subjectRef = signal.subjectRef,
+                actorType = signal.actorType.name,
+                active = signal.active,
+                expiresInMillis = signal.expiresInMillis,
             ),
         ),
     )

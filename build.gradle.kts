@@ -99,6 +99,12 @@ tasks.register<Test>("semanticAcceptanceTest") {
         includeTestsMatching("*.PresenceLeaseContractTest")
         includeTestsMatching("*.RedisPresenceLeaseStoreTest")
         includeTestsMatching("*.AuthenticatedRealtimePresenceLeaseTest")
+        includeTestsMatching("*.TypingSignalProtocolTest")
+        includeTestsMatching("*.TypingSignalRateLimiterTest")
+        includeTestsMatching("*.RedisTypingLeaseStoreTest")
+        includeTestsMatching("*.AuthorizedTypingSignalFanoutTest")
+        includeTestsMatching("*.MultiInstanceTypingSignalFanoutTest")
+        includeTestsMatching("*.AuthenticatedRealtimeTypingSignalTest")
     }
 }
 
@@ -162,6 +168,21 @@ tasks.register<Test>("presenceLeaseTest") {
         includeTestsMatching("*.PresenceLeaseContractTest")
         includeTestsMatching("*.RedisPresenceLeaseStoreTest")
         includeTestsMatching("*.AuthenticatedRealtimePresenceLeaseTest")
+    }
+}
+
+tasks.register<Test>("typingSignalTest") {
+    description = "Verifies bounded, authorised, ephemeral typing leases and fan-out."
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    filter {
+        includeTestsMatching("*.TypingSignalProtocolTest")
+        includeTestsMatching("*.TypingSignalRateLimiterTest")
+        includeTestsMatching("*.RedisTypingLeaseStoreTest")
+        includeTestsMatching("*.AuthorizedTypingSignalFanoutTest")
+        includeTestsMatching("*.MultiInstanceTypingSignalFanoutTest")
+        includeTestsMatching("*.AuthenticatedRealtimeTypingSignalTest")
     }
 }
 

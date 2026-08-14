@@ -15,6 +15,7 @@ class RedisRealtimeFanoutConfigTest {
         assertEquals("node-1", config.instanceRef)
         assertEquals("nexo.connect.realtime.v1.message-created", config.messageCreatedChannel)
         assertEquals("nexo.connect.realtime.v1.receipt-advanced", config.receiptAdvancedChannel)
+        assertEquals("nexo.connect.realtime.v1.typing-state", config.typingStateChangedChannel)
     }
 
     @Test

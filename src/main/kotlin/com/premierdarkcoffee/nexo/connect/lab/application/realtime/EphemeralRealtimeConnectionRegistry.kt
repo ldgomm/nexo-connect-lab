@@ -15,6 +15,7 @@ internal data class RegisteredRealtimeConnection(
     val subscribedConversationRefs: MutableSet<String>,
     val messageSink: MessageCreatedEventSink,
     val receiptSink: ReceiptCursorEventSink,
+    val typingSink: TypingSignalSink,
     val lastTouchedNanos: AtomicLong,
 )
 
@@ -60,6 +61,7 @@ class EphemeralRealtimeConnectionRegistry(
         principal: ConnectPrincipal,
         messageSink: MessageCreatedEventSink,
         receiptSink: ReceiptCursorEventSink,
+        typingSink: TypingSignalSink = TypingSignalSink { },
     ): RealtimeConnectionRegistration {
         purgeExpired()
         check(connections.size < maximumConnections) { "Realtime connection registry capacity reached" }
@@ -79,6 +81,7 @@ class EphemeralRealtimeConnectionRegistry(
                     subscribedConversationRefs = ConcurrentHashMap.newKeySet(),
                     messageSink = messageSink,
                     receiptSink = receiptSink,
+                    typingSink = typingSink,
                     lastTouchedNanos = AtomicLong(monotonicNanos()),
                 )
             if (connections.putIfAbsent(registration.registrationRef, connection) == null) {

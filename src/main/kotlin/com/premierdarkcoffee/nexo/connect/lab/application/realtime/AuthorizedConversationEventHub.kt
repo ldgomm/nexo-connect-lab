@@ -3,6 +3,7 @@ package com.premierdarkcoffee.nexo.connect.lab.application.realtime
 import com.premierdarkcoffee.nexo.connect.lab.domain.identity.ConnectPrincipal
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.DurableMessageCreatedEvent
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.DurableReceiptCursorEvent
+import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.EphemeralTypingSignal
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.RealtimeFanoutEnvelope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -20,9 +21,15 @@ fun interface ReceiptCursorEventSink {
     suspend fun emit(event: DurableReceiptCursorEvent)
 }
 
+fun interface TypingSignalSink {
+    suspend fun emit(signal: EphemeralTypingSignal)
+}
+
 data class MessageCreatedPublicationReport(val eligibleSubscriptions: Int, val deliveredSubscriptions: Int)
 
 data class ReceiptCursorPublicationReport(val eligibleSubscriptions: Int, val deliveredSubscriptions: Int)
+
+data class TypingSignalPublicationReport(val eligibleSubscriptions: Int, val deliveredSubscriptions: Int)
 
 class AuthorizedConversationEventHub(
     private val authorizer: ConversationSubscriptionAuthorizer,
@@ -32,7 +39,8 @@ class AuthorizedConversationEventHub(
         principal: ConnectPrincipal,
         sink: MessageCreatedEventSink,
         receiptSink: ReceiptCursorEventSink = ReceiptCursorEventSink { },
-    ): RealtimeConnectionRegistration = connectionRegistry.register(principal, sink, receiptSink)
+        typingSink: TypingSignalSink = TypingSignalSink { },
+    ): RealtimeConnectionRegistration = connectionRegistry.register(principal, sink, receiptSink, typingSink)
 
     fun subscribe(registration: RealtimeConnectionRegistration, conversationRef: String) {
         connectionRegistry.subscribe(registration, conversationRef)
@@ -182,6 +190,22 @@ class AuthorizedConversationEventHub(
         return ReceiptCursorPublicationReport(candidates.size, delivered)
     }
 
+    suspend fun publishTyping(
+        signal: EphemeralTypingSignal,
+        excludedRegistration: RealtimeConnectionRegistration? = null,
+    ): TypingSignalPublicationReport {
+        val candidates = connectionRegistry.candidates(signal.conversationRef, excludedRegistration)
+        var delivered = 0
+        candidates.forEach { connection ->
+            if (authorize(connection, signal.conversationRef)) {
+                if (emitTyping(connection, signal)) delivered += 1
+            } else {
+                connection.subscribedConversationRefs -= signal.conversationRef
+            }
+        }
+        return TypingSignalPublicationReport(candidates.size, delivered)
+    }
+
     internal fun activeConnectionCount(): Int = connectionRegistry.activeConnectionCount()
 
     internal fun activeConnectionCount(principal: ConnectPrincipal): Int =
@@ -252,4 +276,14 @@ class AuthorizedConversationEventHub(
     } catch (_: Exception) {
         false
     }
+
+    private suspend fun emitTyping(connection: RegisteredRealtimeConnection, signal: EphemeralTypingSignal): Boolean =
+        try {
+            connection.typingSink.emit(signal)
+            true
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            false
+        }
 }

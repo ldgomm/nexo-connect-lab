@@ -34,6 +34,7 @@ data class RedisRealtimeFanoutConfig(
     val instanceRef: String,
     val messageCreatedChannel: String,
     val receiptAdvancedChannel: String,
+    val typingStateChangedChannel: String = EXPECTED_TYPING_CHANNEL,
 ) {
     init {
         require(
@@ -46,22 +47,28 @@ data class RedisRealtimeFanoutConfig(
         require(receiptAdvancedChannel == EXPECTED_RECEIPT_CHANNEL) {
             "The receipt-advanced channel must preserve the frozen v1 namespace"
         }
+        require(typingStateChangedChannel == EXPECTED_TYPING_CHANNEL) {
+            "The typing-state channel must preserve the frozen v1 namespace"
+        }
     }
 
     fun channel(channel: RealtimeFanoutChannel): String = when (channel) {
         RealtimeFanoutChannel.MESSAGE_CREATED -> messageCreatedChannel
         RealtimeFanoutChannel.RECEIPT_ADVANCED -> receiptAdvancedChannel
+        RealtimeFanoutChannel.TYPING_STATE_CHANGED -> typingStateChangedChannel
     }
 
     fun logicalChannel(redisChannel: String): RealtimeFanoutChannel? = when (redisChannel) {
         messageCreatedChannel -> RealtimeFanoutChannel.MESSAGE_CREATED
         receiptAdvancedChannel -> RealtimeFanoutChannel.RECEIPT_ADVANCED
+        typingStateChangedChannel -> RealtimeFanoutChannel.TYPING_STATE_CHANGED
         else -> null
     }
 
     companion object {
         const val EXPECTED_MESSAGE_CHANNEL = "nexo.connect.realtime.v1.message-created"
         const val EXPECTED_RECEIPT_CHANNEL = "nexo.connect.realtime.v1.receipt-advanced"
+        const val EXPECTED_TYPING_CHANNEL = "nexo.connect.realtime.v1.typing-state"
         private const val MAX_INSTANCE_REF_BYTES = 128
         private val INSTANCE_REF_PATTERN = Regex("[A-Za-z0-9][A-Za-z0-9._:-]*")
 
@@ -76,6 +83,7 @@ data class RedisRealtimeFanoutConfig(
                 instanceRef = instanceRef,
                 messageCreatedChannel = "${redisConfig.channelNamespace}.message-created",
                 receiptAdvancedChannel = "${redisConfig.channelNamespace}.receipt-advanced",
+                typingStateChangedChannel = "${redisConfig.channelNamespace}.typing-state",
             )
         }
     }
@@ -187,6 +195,7 @@ internal class LettuceRedisRealtimeFanoutTransport(
                 connection.sync().subscribe(
                     fanoutConfig.messageCreatedChannel,
                     fanoutConfig.receiptAdvancedChannel,
+                    fanoutConfig.typingStateChangedChannel,
                 )
                 retryDelayMillis = redisConfig.reconnectMinDelayMillis
                 while (scope.isActive && !stopped.get() && connection.isOpen) {

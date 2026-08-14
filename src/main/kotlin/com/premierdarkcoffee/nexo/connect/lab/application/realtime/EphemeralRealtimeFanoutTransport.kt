@@ -3,6 +3,7 @@ package com.premierdarkcoffee.nexo.connect.lab.application.realtime
 enum class RealtimeFanoutChannel {
     MESSAGE_CREATED,
     RECEIPT_ADVANCED,
+    TYPING_STATE_CHANGED,
 }
 
 data class EphemeralRealtimeFanoutDelivery(val channel: RealtimeFanoutChannel, val payload: String)
