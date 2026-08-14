@@ -36,13 +36,11 @@ internal data class RealtimeTransportHardeningConfig(
         const val MAX_OUTBOUND_QUEUE_CAPACITY = 1_024
         const val DEFAULT_OUTBOUND_SEND_TIMEOUT_MILLIS = 5_000L
         const val MAX_OUTBOUND_SEND_TIMEOUT_MILLIS = 30_000L
-        const val LIVE_FAN_OUT_SCOPE = "SINGLE_APPLICATION_INSTANCE"
+        const val LIVE_FAN_OUT_SCOPE = "MULTI_APPLICATION_INSTANCE"
     }
 }
 
-internal class RealtimeConnectionLimiter(
-    private val maximumConnections: Int,
-) {
+internal class RealtimeConnectionLimiter(private val maximumConnections: Int) {
     private val activeConnections = AtomicInteger(0)
 
     init {
@@ -68,9 +66,7 @@ internal class RealtimeConnectionLimiter(
     }
 }
 
-internal class RealtimeConnectionLease(
-    private val releaseAction: () -> Unit,
-) : AutoCloseable {
+internal class RealtimeConnectionLease(private val releaseAction: () -> Unit) : AutoCloseable {
     private val released = AtomicBoolean(false)
 
     override fun close() {
@@ -87,10 +83,7 @@ internal class BoundedRealtimeOutboundSender(
     private val writeText: suspend (String) -> Unit,
     private val closeSlowConsumer: suspend () -> Unit,
 ) {
-    private data class PendingFrame(
-        val text: String,
-        val delivery: CompletableDeferred<Unit>?,
-    )
+    private data class PendingFrame(val text: String, val delivery: CompletableDeferred<Unit>?)
 
     private val outbound = Channel<PendingFrame>(capacity)
     private val slowConsumerClosed = AtomicBoolean(false)
@@ -123,10 +116,7 @@ internal class BoundedRealtimeOutboundSender(
             }
         }
 
-    suspend fun send(
-        text: String,
-        awaitDelivery: Boolean = false,
-    ) {
+    suspend fun send(text: String, awaitDelivery: Boolean = false) {
         if (slowConsumerClosed.get()) throw SlowRealtimeConsumerException()
         val delivery = if (awaitDelivery) CompletableDeferred<Unit>() else null
         val pending = PendingFrame(text, delivery)

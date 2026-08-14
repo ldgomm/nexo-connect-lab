@@ -121,8 +121,10 @@ required_files=(
     docker/redis/start-ephemeral-redis.sh
     docs/architecture/ADR-001_CONNECT_MULTI_INSTANCE_EPHEMERAL_REDIS_FANOUT.md
     docs/architecture/CONNECT_12_EPHEMERAL_REDIS_CLIENT_BOUNDARY.md
+    docs/architecture/CONNECT_13_MULTI_INSTANCE_REALTIME_FANOUT.md
     docs/architecture/connect-multi-instance-fanout-contract.properties
     docs/architecture/connect-redis-ephemeral-boundary.properties
+    docs/architecture/connect-realtime-fanout.properties
     docs/governance/CONNECT_PHASE_GOVERNANCE.md
     docs/governance/INTELLIJ_FORMATTING.md
     docs/governance/SEMANTIC_ACCEPTANCE_GATES.md
@@ -150,6 +152,8 @@ required_files=(
     scripts/verify-phase-governance.sh
     scripts/verify-formatting-convergence.sh
     scripts/verify-multi-instance-fanout-architecture.sh
+    scripts/verify-multi-instance-realtime-fanout.sh
+    scripts/verify-multi-instance-realtime-fanout-runtime.sh
     scripts/verify-redis-ephemeral-boundary.sh
     scripts/verify-redis-loss-durable-isolation.sh
     settings.gradle.kts
@@ -161,6 +165,10 @@ required_files=(
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/DurableTextMessageCoordinator.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/DurableConversationCatchUp.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/DurableReceiptCursorService.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/EphemeralRealtimeFanoutTransport.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/RealtimeFanoutEnvelopeCodec.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/AuthorisedDurableFanoutPayloadLoader.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/MultiInstanceRealtimeFanout.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/realtime/RealtimeTransport.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/realtime/RealtimeTransportHardening.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt
@@ -168,10 +176,12 @@ required_files=(
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/RealtimeProtocol.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/DurableMessageCreatedEvent.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/DurableReceiptCursor.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/RealtimeFanoutEnvelope.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresDurableReceiptCursorRepository.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisEphemeralConfig.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisEphemeralCircuit.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisEphemeralLifecycle.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisRealtimeFanoutLifecycle.kt
     src/main/resources/db/migration/V5__durable_receipt_cursors.sql
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/conversation/DurableConversationListing.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/conversation/CreateBusinessClientConversationCommand.kt
@@ -211,6 +221,10 @@ required_files=(
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/capacity/RealtimeSingleInstanceCapacityRuntimeTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisEphemeralConfigTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisEphemeralRuntimeTest.kt
+    src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/RealtimeFanoutEnvelopeTest.kt
+    src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/MultiInstanceRealtimeFanoutTest.kt
+    src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisRealtimeFanoutConfigTest.kt
+    src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisMultiInstanceRealtimeFanoutIntegrationTest.kt
 )
 
 for required_file in "${required_files[@]}"; do
@@ -314,6 +328,8 @@ bash -n scripts/verify-postgres-schema.sh
 bash -n scripts/verify-phase-governance.sh
 bash -n scripts/verify-formatting-convergence.sh
 bash -n scripts/verify-multi-instance-fanout-architecture.sh
+bash -n scripts/verify-multi-instance-realtime-fanout.sh
+bash -n scripts/verify-multi-instance-realtime-fanout-runtime.sh
 bash -n scripts/verify-redis-ephemeral-boundary.sh
 bash -n scripts/verify-redis-loss-durable-isolation.sh
 bash -n docker/postgres/init/001-create-connect-app-role.sh
@@ -335,6 +351,9 @@ printf 'MULTI_INSTANCE_FANOUT_ARCHITECTURE_CONTRACT=PASS\n'
 
 ./scripts/verify-redis-ephemeral-boundary.sh
 printf 'REDIS_EPHEMERAL_BOUNDARY_CONTRACT=PASS\n'
+
+./scripts/verify-multi-instance-realtime-fanout.sh
+printf 'MULTI_INSTANCE_REALTIME_FANOUT_CONTRACT=PASS\n'
 
 CONNECT_C5_MIGRATION_DIRECTORY="src/main/resources/db/migration"
 CONNECT_C5_MIGRATION_FILE_COUNT="$(
@@ -550,7 +569,7 @@ if ! grep -Fq 'const val ACK_DELIVERY = "ACK_DELIVERY"' \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresDurableReceiptCursorRepository.kt ||
     ! grep -Fq 'highest_read_sequence <= highest_delivered_sequence' \
         src/main/resources/db/migration/V5__durable_receipt_cursors.sql ||
-    ! grep -Fq 'publishReceipt(event, excludedRegistration = registration)' \
+    ! grep -Fq 'multiInstanceFanout.publishReceipt(event, excludedRegistration = registration)' \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt ||
     ! grep -Fq 'DURABLE_RECEIPT_RECONNECT_SNAPSHOT=PASS' \
         scripts/verify-durable-receipts.sh ||
@@ -581,7 +600,7 @@ if ! grep -Fq 'class BoundedRealtimeOutboundSender' \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt ||
     ! grep -Fq 'connectionLease.close()' \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt ||
-    ! grep -Fq 'LIVE_FAN_OUT_SCOPE = "SINGLE_APPLICATION_INSTANCE"' \
+    ! grep -Fq 'LIVE_FAN_OUT_SCOPE = "MULTI_APPLICATION_INSTANCE"' \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/RealtimeProtocol.kt ||
     ! grep -Fq 'PING_PERIOD_SECONDS = 20' \
         src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/RealtimeProtocol.kt ||
@@ -631,6 +650,7 @@ fi
 
 for exact_env in \
     'CONNECT_LAB_COMPOSE_PROJECT=nexo-connect-lab' \
+    'CONNECT_LAB_INSTANCE_REF=connect-instance-local-1' \
     'CONNECT_LAB_HTTP_HOST_PORT=8282' \
     'CONNECT_LAB_POSTGRES_HOST_PORT=55432' \
     'CONNECT_LAB_REDIS_HOST_PORT=56379' \
@@ -755,6 +775,9 @@ printf 'REALTIME_TRANSPORT_HARDENING=PASS\n'
 
 ./scripts/verify-realtime-capacity-baseline.sh
 printf 'REALTIME_SINGLE_INSTANCE_CAPACITY=PASS\n'
+
+./scripts/verify-multi-instance-realtime-fanout-runtime.sh
+printf 'MULTI_INSTANCE_REALTIME_FANOUT_RUNTIME_CONTRACT=PASS\n'
 
 ./scripts/verify-postgres-schema.sh
 printf 'POSTGRES_SCHEMA_CONTRACT=PASS\n'

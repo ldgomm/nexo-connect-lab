@@ -1,9 +1,10 @@
 package com.premierdarkcoffee.nexo.connect.lab.backend.routes
 
-import com.premierdarkcoffee.nexo.connect.lab.backend.realtime.AuthenticatedConnectPrincipal
-import com.premierdarkcoffee.nexo.connect.lab.backend.realtime.BoundedRealtimeOutboundSender
-import com.premierdarkcoffee.nexo.connect.lab.backend.realtime.REALTIME_AUTH_PROVIDER
-import com.premierdarkcoffee.nexo.connect.lab.backend.realtime.authenticatedRealtimeRuntime
+import com.premierdarkcoffee.nexo.connect.lab.application.persistence.AdvanceDurableReceiptCursorRequest
+import com.premierdarkcoffee.nexo.connect.lab.application.persistence.AdvanceDurableReceiptCursorResult
+import com.premierdarkcoffee.nexo.connect.lab.application.persistence.DurableReceiptAdvance
+import com.premierdarkcoffee.nexo.connect.lab.application.persistence.LoadDurableReceiptCursorsRequest
+import com.premierdarkcoffee.nexo.connect.lab.application.persistence.LoadDurableReceiptCursorsResult
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.AuthorizeConversationSubscriptionRequest
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.ConversationSubscriptionAuthorizationResult
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.DurableConversationCatchUpResult
@@ -11,20 +12,19 @@ import com.premierdarkcoffee.nexo.connect.lab.application.realtime.LoadDurableCo
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.MessageCreatedEventSink
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.RealtimeConnectionRegistration
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.ReceiptCursorEventSink
-import com.premierdarkcoffee.nexo.connect.lab.application.persistence.AdvanceDurableReceiptCursorRequest
-import com.premierdarkcoffee.nexo.connect.lab.application.persistence.AdvanceDurableReceiptCursorResult
-import com.premierdarkcoffee.nexo.connect.lab.application.persistence.DurableReceiptAdvance
-import com.premierdarkcoffee.nexo.connect.lab.application.persistence.LoadDurableReceiptCursorsRequest
-import com.premierdarkcoffee.nexo.connect.lab.application.persistence.LoadDurableReceiptCursorsResult
+import com.premierdarkcoffee.nexo.connect.lab.backend.realtime.AuthenticatedConnectPrincipal
+import com.premierdarkcoffee.nexo.connect.lab.backend.realtime.BoundedRealtimeOutboundSender
+import com.premierdarkcoffee.nexo.connect.lab.backend.realtime.REALTIME_AUTH_PROVIDER
+import com.premierdarkcoffee.nexo.connect.lab.backend.realtime.authenticatedRealtimeRuntime
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.AuthenticatedRealtimeSubject
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.ClientRealtimeFrame
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.ClientRealtimeFrameType
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.ClientRealtimeFrameValidation
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.DurableMessageCreatedEvent
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.DurableReceiptCursorEvent
+import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.RealtimeMessageCreatedPayload
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.RealtimeProtocol
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.RealtimeProtocolError
-import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.RealtimeMessageCreatedPayload
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.RealtimeReceiptCursorPayload
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.ServerRealtimeFrame
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.ServerRealtimeFrameType
@@ -35,17 +35,17 @@ import io.ktor.server.auth.principal
 import io.ktor.server.routing.Route
 import io.ktor.server.websocket.DefaultWebSocketServerSession
 import io.ktor.server.websocket.webSocket
+import io.ktor.util.AttributeKey
 import io.ktor.websocket.CloseReason
 import io.ktor.websocket.Frame
 import io.ktor.websocket.close
 import io.ktor.websocket.readText
 import io.ktor.websocket.send
-import io.ktor.util.AttributeKey
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.withContext
 
 private val RealtimeOutboundSenderKey =
     AttributeKey<BoundedRealtimeOutboundSender>("NexoConnectLabRealtimeOutboundSender")
@@ -82,13 +82,13 @@ fun Route.authenticatedRealtimeRoutes(application: Application) {
                     runtime.conversationEventHub.register(
                         principal = authenticated.connectPrincipal,
                         sink =
-                            MessageCreatedEventSink { event ->
-                                sendMessageCreated(runtime, event)
-                            },
+                        MessageCreatedEventSink { event ->
+                            sendMessageCreated(runtime, event)
+                        },
                         receiptSink =
-                            ReceiptCursorEventSink { event ->
-                                sendReceiptCursor(runtime, event)
-                            },
+                        ReceiptCursorEventSink { event ->
+                            sendReceiptCursor(runtime, event)
+                        },
                     )
                 } catch (failure: Exception) {
                     outboundSender.shutdown()
@@ -104,10 +104,10 @@ fun Route.authenticatedRealtimeRoutes(application: Application) {
                         eventId = runtime.eventIdFactory(),
                         serverTimestamp = runtime.clock.instant().toString(),
                         subject =
-                            AuthenticatedRealtimeSubject(
-                                subjectRef = authenticated.connectPrincipal.subjectRef,
-                                actorType = authenticated.connectPrincipal.actorType.name,
-                            ),
+                        AuthenticatedRealtimeSubject(
+                            subjectRef = authenticated.connectPrincipal.subjectRef,
+                            actorType = authenticated.connectPrincipal.actorType.name,
+                        ),
                     ),
                 )
 
@@ -141,6 +141,7 @@ fun Route.authenticatedRealtimeRoutes(application: Application) {
                                         subscribedConversationRefs = subscribedConversationRefs,
                                         frame = clientFrame,
                                     )
+
                                 is ClientRealtimeFrameValidation.Invalid -> {
                                     val closeCode =
                                         if (validation.code == "INCOMPATIBLE_PROTOCOL_MAJOR") {
@@ -403,7 +404,7 @@ private suspend fun DefaultWebSocketServerSession.advanceReceiptCursor(
             val event = DurableReceiptCursorEvent(result.cursor)
             sendReceiptCursor(runtime, event, frame.correlationId ?: frame.eventId)
             if (result.advanced) {
-                runtime.conversationEventHub.publishReceipt(event, excludedRegistration = registration)
+                runtime.multiInstanceFanout.publishReceipt(event, excludedRegistration = registration)
             }
         }
 
@@ -463,29 +464,27 @@ private suspend fun authorizeConversation(
     runtime: com.premierdarkcoffee.nexo.connect.lab.backend.realtime.AuthenticatedRealtimeRuntime,
     authenticated: AuthenticatedConnectPrincipal,
     conversationRef: String,
-): ConversationSubscriptionAuthorizationResult =
-    try {
-        withContext(Dispatchers.IO) {
-            runtime.conversationSubscriptionAuthorizer.authorize(
-                AuthorizeConversationSubscriptionRequest(
-                    principal = authenticated.connectPrincipal,
-                    conversationRef = conversationRef,
-                ),
-            )
-        }
-    } catch (cancelled: CancellationException) {
-        throw cancelled
-    } catch (_: Exception) {
-        ConversationSubscriptionAuthorizationResult.Unavailable
+): ConversationSubscriptionAuthorizationResult = try {
+    withContext(Dispatchers.IO) {
+        runtime.conversationSubscriptionAuthorizer.authorize(
+            AuthorizeConversationSubscriptionRequest(
+                principal = authenticated.connectPrincipal,
+                conversationRef = conversationRef,
+            ),
+        )
     }
+} catch (cancelled: CancellationException) {
+    throw cancelled
+} catch (_: Exception) {
+    ConversationSubscriptionAuthorizationResult.Unavailable
+}
 
 private fun hasSubscriptionCapacity(
     runtime: com.premierdarkcoffee.nexo.connect.lab.backend.realtime.AuthenticatedRealtimeRuntime,
     subscribedConversationRefs: Set<String>,
     conversationRef: String,
-): Boolean =
-    conversationRef in subscribedConversationRefs ||
-        subscribedConversationRefs.size < runtime.maxConversationSubscriptions
+): Boolean = conversationRef in subscribedConversationRefs ||
+    subscribedConversationRefs.size < runtime.maxConversationSubscriptions
 
 private suspend fun DefaultWebSocketServerSession.sendConversationSubscribed(
     runtime: com.premierdarkcoffee.nexo.connect.lab.backend.realtime.AuthenticatedRealtimeRuntime,
@@ -517,15 +516,15 @@ private suspend fun DefaultWebSocketServerSession.sendMessageCreated(
             serverTimestamp = runtime.clock.instant().toString(),
             conversationRef = event.conversationRef,
             message =
-                RealtimeMessageCreatedPayload(
-                    serverMessageRef = event.serverMessageRef,
-                    sequence = event.sequence.value,
-                    senderSubjectRef = event.senderSubjectRef,
-                    senderActorType = event.senderActorType.name,
-                    messageType = "TEXT",
-                    body = event.body.value,
-                    acceptedAtServer = event.acceptedAtServer.toString(),
-                ),
+            RealtimeMessageCreatedPayload(
+                serverMessageRef = event.serverMessageRef,
+                sequence = event.sequence.value,
+                senderSubjectRef = event.senderSubjectRef,
+                senderActorType = event.senderActorType.name,
+                messageType = "TEXT",
+                body = event.body.value,
+                acceptedAtServer = event.acceptedAtServer.toString(),
+            ),
         ),
     )
 }
@@ -545,16 +544,16 @@ private suspend fun DefaultWebSocketServerSession.sendReceiptCursor(
             correlationId = correlationId,
             conversationRef = cursor.conversationRef,
             receipt =
-                RealtimeReceiptCursorPayload(
-                    subjectRef = cursor.subjectRef,
-                    actorType = cursor.actorType.name,
-                    highestDeliveredSequence = cursor.highestDeliveredSequence,
-                    highestReadSequence = cursor.highestReadSequence,
-                    deliveredAt = cursor.deliveredAt?.toString(),
-                    readAt = cursor.readAt?.toString(),
-                    updatedAt = cursor.updatedAt.toString(),
-                    version = cursor.version,
-                ),
+            RealtimeReceiptCursorPayload(
+                subjectRef = cursor.subjectRef,
+                actorType = cursor.actorType.name,
+                highestDeliveredSequence = cursor.highestDeliveredSequence,
+                highestReadSequence = cursor.highestReadSequence,
+                deliveredAt = cursor.deliveredAt?.toString(),
+                readAt = cursor.readAt?.toString(),
+                updatedAt = cursor.updatedAt.toString(),
+                version = cursor.version,
+            ),
         ),
     )
 }

@@ -10,6 +10,7 @@ LIFECYCLE_FILE="${PROJECT_DIR}/src/main/kotlin/com/premierdarkcoffee/nexo/connec
 CIRCUIT_FILE="${PROJECT_DIR}/src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisEphemeralCircuit.kt"
 READINESS_FILE="${PROJECT_DIR}/src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/ReadinessRoutes.kt"
 REDIS_STARTUP_FILE="${PROJECT_DIR}/docker/redis/start-ephemeral-redis.sh"
+FANOUT_FILE="${PROJECT_DIR}/src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisRealtimeFanoutLifecycle.kt"
 
 fail() {
     printf 'REDIS_EPHEMERAL_BOUNDARY=FAIL\n' >&2
@@ -31,7 +32,7 @@ cd "$PROJECT_DIR"
     fail REPOSITORY_IDENTITY_MISMATCH
 for file in \
     "$CONTRACT_FILE" "$CONFIG_FILE" "$CIRCUIT_FILE" "$LIFECYCLE_FILE" "$READINESS_FILE" \
-    "$REDIS_STARTUP_FILE"; do
+    "$REDIS_STARTUP_FILE" "$FANOUT_FILE"; do
     [[ -f "$file" && ! -L "$file" ]] || fail REQUIRED_BOUNDARY_FILE_MISSING_OR_UNSAFE
 done
 [[ -x "$REDIS_STARTUP_FILE" ]] || fail REDIS_STARTUP_FILE_NOT_EXECUTABLE
@@ -48,7 +49,7 @@ property_equals redis.disconnected.commands REJECT || fail DISCONNECTED_COMMAND_
 property_equals redis.required.for.durable.readiness false || fail DURABLE_READINESS_COUPLED_TO_REDIS
 property_equals redis.loss.durable.impact 0 || fail DURABLE_IMPACT_MISMATCH
 property_equals credentials.logged false || fail CREDENTIAL_LOGGING_CONTRACT_MISMATCH
-property_equals publish.subscribe.enabled false || fail CONNECT_13_SCOPE_LEAK
+property_equals publish.subscribe.enabled true || fail CONNECT_13_FANOUT_NOT_ENABLED
 property_equals nexo.db.direct.access 0 || fail NEXO_DB_BOUNDARY_MISMATCH
 
 grep -Fq 'password=<redacted>' "$CONFIG_FILE" || fail SECRET_REDACTION_MISSING
@@ -58,11 +59,11 @@ grep -Fq 'RedisCircuitState.HALF_OPEN' "$CIRCUIT_FILE" || fail CIRCUIT_STATE_MIS
 grep -Fq 'get("/health/ready/ephemeral-redis")' "$READINESS_FILE" || fail EXPLICIT_READINESS_MISSING
 
 if grep -REn '(CONNECT_LAB_REDIS_PASSWORD|default)' \
-    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis ||
-    grep -REn '(RedisPubSub|StatefulRedisPubSubConnection|\.publish\()' \
-        src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis; then
-    fail ROOT_SECRET_OR_CONNECT_13_SCOPE_LEAK
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis; then
+    fail ROOT_SECRET_LEAK
 fi
+grep -Fq 'StatefulRedisPubSubConnection' "$FANOUT_FILE" || fail FANOUT_SUBSCRIBER_MISSING
+grep -Fq 'connection.sync().publish' "$FANOUT_FILE" || fail FANOUT_PUBLISHER_MISSING
 
 printf 'REDIS_TYPED_CONFIGURATION=PASS\n'
 printf 'REDIS_DEDICATED_AUTH=PASS\n'
@@ -71,5 +72,5 @@ printf 'REDIS_TIMEOUTS_AND_QUEUE_BOUNDED=PASS\n'
 printf 'REDIS_RECONNECT_CIRCUIT=PASS\n'
 printf 'REDIS_SECRET_REDACTION=PASS\n'
 printf 'REDIS_DURABLE_READINESS_DECOUPLED=PASS\n'
-printf 'CONNECT_13_SCOPE_REMAINS_LOCKED=PASS\n'
+printf 'CONNECT_13_FANOUT_ENABLED=PASS\n'
 printf 'REDIS_EPHEMERAL_BOUNDARY=PASS\n'

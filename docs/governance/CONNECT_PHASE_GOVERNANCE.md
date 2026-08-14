@@ -5,11 +5,11 @@
 - Programme: `NEXO_CONNECT_LAB`
 - Repository: `connect-lab`
 - Branch: `main`
-- Accepted phase: `CONNECT.11`
-- Accepted HEAD: `60a65ddbaa7de04ade07c3332c4d54a7b221d74f`
+- Accepted phase: `CONNECT.12`
+- Accepted HEAD: `655d733b8668011815f66e065d42c5d66c9e555e`
 - Immutable user baseline: `558d702bd5e7729721cde71d0e3080513798dcdd`
-- Active phase: `CONNECT.12`
-- Next phase after acceptance: `CONNECT.13`
+- Active phase: `CONNECT.13`
+- Next phase after acceptance: `CONNECT.14`
 
 `CONNECT.07` is the accepted governance commit `e330359...`; its historical
 subject used the temporary label `[CONNECT.01]`. The hash is preserved and the
@@ -67,7 +67,12 @@ catch-up repairs live fan-out loss.
 `CONNECT.12` implements the isolated Redis application identity, typed client
 configuration, bounded timeouts/request queue, reconnect circuit and explicit
 ephemeral readiness. Redis remains optional for durable readiness and has local
-persistence disabled. Publish/subscribe wiring remains locked to `CONNECT.13`.
+persistence disabled.
+
+`CONNECT.13` implements the frozen v1 message and receipt Pub/Sub channels,
+minimal durable-reference envelopes, origin exclusion, bounded local dedupe,
+destination reauthorisation and authorised PostgreSQL payload reload. Redis
+cannot create or modify durable chat state.
 
 The empty `docker-compose.watch.yml` is tracked by the accepted user baseline.
 Later phase commits must preserve it byte-for-byte unless the user explicitly

@@ -85,7 +85,7 @@ class RealtimeTransportHardeningTest {
             RealtimeTransportHardeningConfig(maxConcurrentConnections = Int.MAX_VALUE)
         }
         assertEquals(
-            "SINGLE_APPLICATION_INSTANCE",
+            "MULTI_APPLICATION_INSTANCE",
             RealtimeTransportHardeningConfig.LIVE_FAN_OUT_SCOPE,
         )
     }

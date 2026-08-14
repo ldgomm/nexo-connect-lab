@@ -2,23 +2,28 @@ package com.premierdarkcoffee.nexo.connect.lab.backend.realtime
 
 import com.premierdarkcoffee.nexo.connect.lab.application.identity.IdentityVerificationResult
 import com.premierdarkcoffee.nexo.connect.lab.application.identity.IdentityVerifier
-import com.premierdarkcoffee.nexo.connect.lab.application.realtime.ConversationSubscriptionAuthorizer
+import com.premierdarkcoffee.nexo.connect.lab.application.persistence.DurableMessageHistoryRepository
+import com.premierdarkcoffee.nexo.connect.lab.application.persistence.DurableReceiptCursorRepository
+import com.premierdarkcoffee.nexo.connect.lab.application.persistence.DurableTextRepository
+import com.premierdarkcoffee.nexo.connect.lab.application.realtime.AuthorisedDurableFanoutPayloadLoader
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.AuthorizedConversationEventHub
+import com.premierdarkcoffee.nexo.connect.lab.application.realtime.ConversationSubscriptionAuthorizer
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.DurableConversationCatchUp
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.DurableReceiptCursorService
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.DurableTextMessageCoordinator
+import com.premierdarkcoffee.nexo.connect.lab.application.realtime.MultiInstanceRealtimeFanout
+import com.premierdarkcoffee.nexo.connect.lab.application.realtime.PostgresAuthorisedDurableFanoutPayloadLoader
+import com.premierdarkcoffee.nexo.connect.lab.application.realtime.RealtimeFanoutEnvelopeCodec
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.RepositoryConversationSubscriptionAuthorizer
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.UnavailableConversationSubscriptionAuthorizer
-import com.premierdarkcoffee.nexo.connect.lab.application.persistence.DurableTextRepository
-import com.premierdarkcoffee.nexo.connect.lab.application.persistence.DurableMessageHistoryRepository
-import com.premierdarkcoffee.nexo.connect.lab.application.persistence.DurableReceiptCursorRepository
 import com.premierdarkcoffee.nexo.connect.lab.domain.identity.ConnectPrincipal
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.RealtimeProtocol
 import com.premierdarkcoffee.nexo.connect.lab.infrastructure.identity.SyntheticRealtimeIdentityRegistry
 import com.premierdarkcoffee.nexo.connect.lab.infrastructure.persistence.postgres.conversationRepositoryOrNull
-import com.premierdarkcoffee.nexo.connect.lab.infrastructure.persistence.postgres.durableTextRepositoryOrNull
 import com.premierdarkcoffee.nexo.connect.lab.infrastructure.persistence.postgres.durableMessageHistoryRepositoryOrNull
 import com.premierdarkcoffee.nexo.connect.lab.infrastructure.persistence.postgres.durableReceiptCursorRepositoryOrNull
+import com.premierdarkcoffee.nexo.connect.lab.infrastructure.persistence.postgres.durableTextRepositoryOrNull
+import com.premierdarkcoffee.nexo.connect.lab.infrastructure.redis.redisRealtimeFanoutTransportOrNull
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
 import io.ktor.server.auth.Authentication
@@ -35,9 +40,7 @@ import kotlin.time.Duration.Companion.seconds
 
 const val REALTIME_AUTH_PROVIDER = "connect-realtime-bearer"
 
-data class AuthenticatedConnectPrincipal(
-    val connectPrincipal: ConnectPrincipal,
-) : Principal
+data class AuthenticatedConnectPrincipal(val connectPrincipal: ConnectPrincipal) : Principal
 
 internal class AuthenticatedRealtimeRuntime(
     val json: Json,
@@ -45,6 +48,7 @@ internal class AuthenticatedRealtimeRuntime(
     val eventIdFactory: () -> String,
     val conversationSubscriptionAuthorizer: ConversationSubscriptionAuthorizer,
     val conversationEventHub: AuthorizedConversationEventHub,
+    val multiInstanceFanout: MultiInstanceRealtimeFanout,
     val durableTextMessageCoordinator: DurableTextMessageCoordinator?,
     val durableConversationCatchUp: DurableConversationCatchUp?,
     val durableReceiptCursorService: DurableReceiptCursorService?,
@@ -56,8 +60,7 @@ internal class AuthenticatedRealtimeRuntime(
 private val RealtimeRuntimeKey =
     AttributeKey<AuthenticatedRealtimeRuntime>("NexoConnectLabAuthenticatedRealtimeRuntime")
 
-internal fun Application.authenticatedRealtimeRuntime(): AuthenticatedRealtimeRuntime =
-    attributes[RealtimeRuntimeKey]
+internal fun Application.authenticatedRealtimeRuntime(): AuthenticatedRealtimeRuntime = attributes[RealtimeRuntimeKey]
 
 internal fun Application.authenticatedRealtimeRuntimeOrNull(): AuthenticatedRealtimeRuntime? =
     attributes.getOrNull(RealtimeRuntimeKey)
@@ -94,11 +97,19 @@ internal fun Application.installAuthenticatedRealtimeTransport(
             ?: conversationRepositoryOrNull()?.let(::RepositoryConversationSubscriptionAuthorizer)
             ?: UnavailableConversationSubscriptionAuthorizer
     val conversationEventHub = AuthorizedConversationEventHub(resolvedSubscriptionAuthorizer)
+    var authorisedFanoutPayloadLoader: AuthorisedDurableFanoutPayloadLoader? = null
+    val multiInstanceFanout =
+        MultiInstanceRealtimeFanout(
+            localHub = conversationEventHub,
+            transport = redisRealtimeFanoutTransportOrNull(),
+            payloadLoader = { authorisedFanoutPayloadLoader },
+            codec = RealtimeFanoutEnvelopeCodec(protocolJson),
+        )
     val durableTextMessageCoordinator =
         (durableTextRepository ?: durableTextRepositoryOrNull())?.let { repository ->
             DurableTextMessageCoordinator(
                 repository = repository,
-                eventPublisher = conversationEventHub,
+                eventPublisher = multiInstanceFanout,
                 clock = clock,
                 serverMessageRefFactory = serverMessageRefFactory,
             )
@@ -114,6 +125,14 @@ internal fun Application.installAuthenticatedRealtimeTransport(
                 messageCoordinator = durableTextMessageCoordinator,
             )
         }
+    if (durableConversationCatchUp != null && durableReceiptCursorService != null) {
+        authorisedFanoutPayloadLoader =
+            PostgresAuthorisedDurableFanoutPayloadLoader(
+                catchUp = durableConversationCatchUp,
+                receiptCursorService = durableReceiptCursorService,
+            )
+    }
+    multiInstanceFanout.start()
 
     attributes.put(
         RealtimeRuntimeKey,
@@ -123,6 +142,7 @@ internal fun Application.installAuthenticatedRealtimeTransport(
             eventIdFactory = eventIdFactory,
             conversationSubscriptionAuthorizer = resolvedSubscriptionAuthorizer,
             conversationEventHub = conversationEventHub,
+            multiInstanceFanout = multiInstanceFanout,
             durableTextMessageCoordinator = durableTextMessageCoordinator,
             durableConversationCatchUp = durableConversationCatchUp,
             durableReceiptCursorService = durableReceiptCursorService,

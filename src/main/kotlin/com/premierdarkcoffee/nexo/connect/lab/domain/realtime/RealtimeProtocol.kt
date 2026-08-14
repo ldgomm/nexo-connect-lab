@@ -11,7 +11,7 @@ object RealtimeProtocol {
     const val MAX_CONVERSATION_SUBSCRIPTIONS = 100
     const val PING_PERIOD_SECONDS = 20
     const val IDLE_TIMEOUT_SECONDS = 15
-    const val LIVE_FAN_OUT_SCOPE = "SINGLE_APPLICATION_INSTANCE"
+    const val LIVE_FAN_OUT_SCOPE = "MULTI_APPLICATION_INSTANCE"
 }
 
 object ClientRealtimeFrameType {
@@ -44,16 +44,10 @@ data class ClientRealtimeFrame(
 )
 
 @Serializable
-data class AuthenticatedRealtimeSubject(
-    val subjectRef: String,
-    val actorType: String,
-)
+data class AuthenticatedRealtimeSubject(val subjectRef: String, val actorType: String)
 
 @Serializable
-data class RealtimeProtocolError(
-    val code: String,
-    val retryable: Boolean,
-)
+data class RealtimeProtocolError(val code: String, val retryable: Boolean)
 
 @Serializable
 data class RealtimeMessageCreatedPayload(
@@ -97,9 +91,7 @@ data class ServerRealtimeFrame(
 sealed interface ClientRealtimeFrameValidation {
     data object Valid : ClientRealtimeFrameValidation
 
-    data class Invalid(
-        val code: String,
-    ) : ClientRealtimeFrameValidation
+    data class Invalid(val code: String) : ClientRealtimeFrameValidation
 }
 
 fun ClientRealtimeFrame.validateEnvelope(): ClientRealtimeFrameValidation {

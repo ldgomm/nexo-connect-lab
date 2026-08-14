@@ -3,6 +3,7 @@ package com.premierdarkcoffee.nexo.connect.lab.application.realtime
 import com.premierdarkcoffee.nexo.connect.lab.domain.identity.ConnectPrincipal
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.DurableMessageCreatedEvent
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.DurableReceiptCursorEvent
+import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.RealtimeFanoutEnvelope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -21,19 +22,11 @@ fun interface ReceiptCursorEventSink {
     suspend fun emit(event: DurableReceiptCursorEvent)
 }
 
-data class RealtimeConnectionRegistration(
-    val registrationRef: String,
-)
+data class RealtimeConnectionRegistration(val registrationRef: String)
 
-data class MessageCreatedPublicationReport(
-    val eligibleSubscriptions: Int,
-    val deliveredSubscriptions: Int,
-)
+data class MessageCreatedPublicationReport(val eligibleSubscriptions: Int, val deliveredSubscriptions: Int)
 
-data class ReceiptCursorPublicationReport(
-    val eligibleSubscriptions: Int,
-    val deliveredSubscriptions: Int,
-)
+data class ReceiptCursorPublicationReport(val eligibleSubscriptions: Int, val deliveredSubscriptions: Int)
 
 class AuthorizedConversationEventHub(
     private val authorizer: ConversationSubscriptionAuthorizer,
@@ -68,10 +61,7 @@ class AuthorizedConversationEventHub(
         return registration
     }
 
-    fun subscribe(
-        registration: RealtimeConnectionRegistration,
-        conversationRef: String,
-    ) {
+    fun subscribe(registration: RealtimeConnectionRegistration, conversationRef: String) {
         val connection = checkNotNull(connections[registration.registrationRef]) {
             "Realtime connection is not registered"
         }
@@ -173,5 +163,119 @@ class AuthorizedConversationEventHub(
             eligibleSubscriptions = candidates.size,
             deliveredSubscriptions = delivered,
         )
+    }
+
+    suspend fun publishRemoteMessage(
+        envelope: RealtimeFanoutEnvelope,
+        payloadLoader: AuthorisedDurableFanoutPayloadLoader,
+    ): MessageCreatedPublicationReport {
+        val candidates = messageCandidates(envelope.conversationRef)
+        val payloads = mutableMapOf<ConnectPrincipal, DurableMessageCreatedEvent?>()
+        var delivered = 0
+
+        candidates.forEach { connection ->
+            if (authorize(connection, envelope.conversationRef)) {
+                val event =
+                    if (payloads.containsKey(connection.principal)) {
+                        payloads[connection.principal]
+                    } else {
+                        loadRemoteMessage(payloadLoader, connection.principal, envelope).also {
+                            payloads[connection.principal] = it
+                        }
+                    }
+                if (event != null && emitMessage(connection, event)) delivered += 1
+            } else {
+                connection.subscribedConversationRefs -= envelope.conversationRef
+            }
+        }
+        return MessageCreatedPublicationReport(candidates.size, delivered)
+    }
+
+    suspend fun publishRemoteReceipt(
+        envelope: RealtimeFanoutEnvelope,
+        payloadLoader: AuthorisedDurableFanoutPayloadLoader,
+    ): ReceiptCursorPublicationReport {
+        val candidates = messageCandidates(envelope.conversationRef)
+        val payloads = mutableMapOf<ConnectPrincipal, DurableReceiptCursorEvent?>()
+        var delivered = 0
+
+        candidates.forEach { connection ->
+            if (authorize(connection, envelope.conversationRef)) {
+                val event =
+                    if (payloads.containsKey(connection.principal)) {
+                        payloads[connection.principal]
+                    } else {
+                        loadRemoteReceipt(payloadLoader, connection.principal, envelope).also {
+                            payloads[connection.principal] = it
+                        }
+                    }
+                if (event != null && emitReceipt(connection, event)) delivered += 1
+            } else {
+                connection.subscribedConversationRefs -= envelope.conversationRef
+            }
+        }
+        return ReceiptCursorPublicationReport(candidates.size, delivered)
+    }
+
+    private fun messageCandidates(conversationRef: String): List<ConnectionState> =
+        connections.values.filter { connection ->
+            conversationRef in connection.subscribedConversationRefs
+        }
+
+    private suspend fun authorize(connection: ConnectionState, conversationRef: String): Boolean = try {
+        withContext(Dispatchers.IO) {
+            authorizer.authorize(
+                AuthorizeConversationSubscriptionRequest(
+                    principal = connection.principal,
+                    conversationRef = conversationRef,
+                ),
+            )
+        } is ConversationSubscriptionAuthorizationResult.Authorized
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        false
+    }
+
+    private suspend fun loadRemoteMessage(
+        payloadLoader: AuthorisedDurableFanoutPayloadLoader,
+        principal: ConnectPrincipal,
+        envelope: RealtimeFanoutEnvelope,
+    ): DurableMessageCreatedEvent? = try {
+        payloadLoader.loadMessage(principal, envelope)
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        null
+    }
+
+    private suspend fun loadRemoteReceipt(
+        payloadLoader: AuthorisedDurableFanoutPayloadLoader,
+        principal: ConnectPrincipal,
+        envelope: RealtimeFanoutEnvelope,
+    ): DurableReceiptCursorEvent? = try {
+        payloadLoader.loadReceipt(principal, envelope)
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        null
+    }
+
+    private suspend fun emitMessage(connection: ConnectionState, event: DurableMessageCreatedEvent): Boolean = try {
+        connection.messageSink.emit(event)
+        true
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        false
+    }
+
+    private suspend fun emitReceipt(connection: ConnectionState, event: DurableReceiptCursorEvent): Boolean = try {
+        connection.receiptSink.emit(event)
+        true
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        false
     }
 }

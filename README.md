@@ -53,3 +53,9 @@ PostgreSQL is the durable authority. If Redis is unavailable, the first route
 remains `READY` while its Redis header changes to `DEGRADED`; the second route
 returns `REDIS_DEGRADED`. Redis is authenticated with a dedicated application
 ACL, has persistence disabled and cannot access namespaces outside Connect Lab.
+
+Committed messages and receipt cursors are fanned out between application
+instances through the versioned Redis Pub/Sub channels. Notifications contain
+only opaque durable references; each destination reauthorises the subscription
+and reloads the payload from PostgreSQL. Missed live signals are repaired by
+the existing authorised catch-up path.

@@ -90,6 +90,21 @@ tasks.register<Test>("semanticAcceptanceTest") {
         includeTestsMatching("*.ReadinessRoutesTest")
         includeTestsMatching("*.RedisEphemeralConfigTest")
         includeTestsMatching("*.RedisEphemeralRuntimeTest")
+        includeTestsMatching("*.RealtimeFanoutEnvelopeTest")
+        includeTestsMatching("*.MultiInstanceRealtimeFanoutTest")
+        includeTestsMatching("*.RedisRealtimeFanoutConfigTest")
+    }
+}
+
+tasks.register<Test>("multiInstanceRealtimeFanoutTest") {
+    description = "Verifies versioned, authorised multi-instance message and receipt fan-out."
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    filter {
+        includeTestsMatching("*.RealtimeFanoutEnvelopeTest")
+        includeTestsMatching("*.MultiInstanceRealtimeFanoutTest")
+        includeTestsMatching("*.RedisRealtimeFanoutConfigTest")
     }
 }
 
