@@ -5,11 +5,11 @@
 - Programme: `NEXO_CONNECT_LAB`
 - Repository: `connect-lab`
 - Branch: `main`
-- Accepted phase: `CONNECT.12`
-- Accepted HEAD: `655d733b8668011815f66e065d42c5d66c9e555e`
+- Accepted phase: `CONNECT.13`
+- Accepted HEAD: `6442ef285a30f7836d75bba4ddb4452fb56a7a39`
 - Immutable user baseline: `558d702bd5e7729721cde71d0e3080513798dcdd`
-- Active phase: `CONNECT.13`
-- Next phase after acceptance: `CONNECT.14`
+- Active phase: `CONNECT.14`
+- Next phase after acceptance: `CONNECT.15`
 
 `CONNECT.07` is the accepted governance commit `e330359...`; its historical
 subject used the temporary label `[CONNECT.01]`. The hash is preserved and the
@@ -73,6 +73,12 @@ persistence disabled.
 minimal durable-reference envelopes, origin exclusion, bounded local dedupe,
 destination reauthorisation and authorised PostgreSQL payload reload. Redis
 cannot create or modify durable chat state.
+
+`CONNECT.14` coordinates multiple devices through a bounded local connection
+registry. Server-generated connection, device and session references are
+opaque, short-lived and never authorisation credentials. Redis fan-out reaches
+each destination instance; exact-origin receipt exclusion preserves delivery
+to the subject's other authorised devices without sticky sessions.
 
 The empty `docker-compose.watch.yml` is tracked by the accepted user baseline.
 Later phase commits must preserve it byte-for-byte unless the user explicitly

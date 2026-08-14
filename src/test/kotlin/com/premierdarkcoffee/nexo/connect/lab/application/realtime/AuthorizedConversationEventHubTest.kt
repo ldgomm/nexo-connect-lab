@@ -9,7 +9,6 @@ import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.DurableReceiptCurs
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.DurableReceiptCursorEvent
 import kotlinx.coroutines.runBlocking
 import java.time.Instant
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -21,17 +20,16 @@ class AuthorizedConversationEventHubTest {
         val hub =
             AuthorizedConversationEventHub(
                 authorizer =
-                    ConversationSubscriptionAuthorizer { request ->
-                        if (request.principal.subjectRef in deniedSubjects) {
-                            ConversationSubscriptionAuthorizationResult.NotFoundOrDenied
-                        } else {
-                            ConversationSubscriptionAuthorizationResult.Authorized(
-                                request.conversationRef,
-                                1,
-                            )
-                        }
-                    },
-                registrationRefFactory = sequentialRegistrationRefs(),
+                ConversationSubscriptionAuthorizer { request ->
+                    if (request.principal.subjectRef in deniedSubjects) {
+                        ConversationSubscriptionAuthorizationResult.NotFoundOrDenied
+                    } else {
+                        ConversationSubscriptionAuthorizationResult.Authorized(
+                            request.conversationRef,
+                            1,
+                        )
+                    }
+                },
             )
         val businessEvents = mutableListOf<DurableMessageCreatedEvent>()
         val clientEvents = mutableListOf<DurableMessageCreatedEvent>()
@@ -60,10 +58,9 @@ class AuthorizedConversationEventHubTest {
         val hub =
             AuthorizedConversationEventHub(
                 authorizer =
-                    ConversationSubscriptionAuthorizer { request ->
-                        ConversationSubscriptionAuthorizationResult.Authorized(request.conversationRef, 0)
-                    },
-                registrationRefFactory = sequentialRegistrationRefs(),
+                ConversationSubscriptionAuthorizer { request ->
+                    ConversationSubscriptionAuthorizationResult.Authorized(request.conversationRef, 0)
+                },
             )
         val delivered = mutableListOf<DurableMessageCreatedEvent>()
         val failed = hub.register(businessPrincipal(), MessageCreatedEventSink { error("closed socket") })
@@ -81,10 +78,9 @@ class AuthorizedConversationEventHubTest {
         val hub =
             AuthorizedConversationEventHub(
                 authorizer =
-                    ConversationSubscriptionAuthorizer { request ->
-                        ConversationSubscriptionAuthorizationResult.Authorized(request.conversationRef, 2)
-                    },
-                registrationRefFactory = sequentialRegistrationRefs(),
+                ConversationSubscriptionAuthorizer { request ->
+                    ConversationSubscriptionAuthorizationResult.Authorized(request.conversationRef, 2)
+                },
             )
         val originReceipts = mutableListOf<DurableReceiptCursorEvent>()
         val secondDeviceReceipts = mutableListOf<DurableReceiptCursorEvent>()
@@ -119,59 +115,49 @@ class AuthorizedConversationEventHubTest {
         assertEquals(listOf(event), businessReceipts)
     }
 
-    private fun messageCreatedEvent(): DurableMessageCreatedEvent =
-        DurableMessageCreatedEvent(
+    private fun messageCreatedEvent(): DurableMessageCreatedEvent = DurableMessageCreatedEvent(
+        conversationRef = CONVERSATION_REF,
+        serverMessageRef = "message-1",
+        sequence = ConversationSequence(1),
+        senderSubjectRef = "business-subject",
+        senderActorType = ConnectActorType.BUSINESS,
+        body = TextMessageBody("hello"),
+        acceptedAtServer = Instant.parse("2026-08-12T09:45:00Z"),
+    )
+
+    private fun receiptCursorEvent(): DurableReceiptCursorEvent = DurableReceiptCursorEvent(
+        DurableReceiptCursor(
             conversationRef = CONVERSATION_REF,
-            serverMessageRef = "message-1",
-            sequence = ConversationSequence(1),
-            senderSubjectRef = "business-subject",
-            senderActorType = ConnectActorType.BUSINESS,
-            body = TextMessageBody("hello"),
-            acceptedAtServer = Instant.parse("2026-08-12T09:45:00Z"),
-        )
-
-    private fun receiptCursorEvent(): DurableReceiptCursorEvent =
-        DurableReceiptCursorEvent(
-            DurableReceiptCursor(
-                conversationRef = CONVERSATION_REF,
-                subjectRef = "client-subject",
-                actorType = ConnectActorType.CLIENT,
-                highestDeliveredSequence = 2,
-                highestReadSequence = 1,
-                deliveredAt = Instant.parse("2026-08-12T14:20:00Z"),
-                readAt = Instant.parse("2026-08-12T14:21:00Z"),
-                updatedAt = Instant.parse("2026-08-12T14:21:00Z"),
-                version = 2,
-            ),
-        )
-
-    private fun businessPrincipal() =
-        ConnectPrincipal(
-            subjectRef = "business-subject",
-            actorType = ConnectActorType.BUSINESS,
-            platformScopeRef = "platform",
-            organizationScopeRef = "organization",
-            businessScopeRef = "business",
-        )
-
-    private fun clientPrincipal() =
-        ConnectPrincipal(
             subjectRef = "client-subject",
             actorType = ConnectActorType.CLIENT,
-            platformScopeRef = "platform",
-        )
+            highestDeliveredSequence = 2,
+            highestReadSequence = 1,
+            deliveredAt = Instant.parse("2026-08-12T14:20:00Z"),
+            readAt = Instant.parse("2026-08-12T14:21:00Z"),
+            updatedAt = Instant.parse("2026-08-12T14:21:00Z"),
+            version = 2,
+        ),
+    )
 
-    private fun outsiderPrincipal() =
-        ConnectPrincipal(
-            subjectRef = "outsider-subject",
-            actorType = ConnectActorType.CLIENT,
-            platformScopeRef = "platform",
-        )
+    private fun businessPrincipal() = ConnectPrincipal(
+        subjectRef = "business-subject",
+        actorType = ConnectActorType.BUSINESS,
+        platformScopeRef = "platform",
+        organizationScopeRef = "organization",
+        businessScopeRef = "business",
+    )
 
-    private fun sequentialRegistrationRefs(): () -> String {
-        val next = AtomicInteger()
-        return { "registration-${next.incrementAndGet()}" }
-    }
+    private fun clientPrincipal() = ConnectPrincipal(
+        subjectRef = "client-subject",
+        actorType = ConnectActorType.CLIENT,
+        platformScopeRef = "platform",
+    )
+
+    private fun outsiderPrincipal() = ConnectPrincipal(
+        subjectRef = "outsider-subject",
+        actorType = ConnectActorType.CLIENT,
+        platformScopeRef = "platform",
+    )
 
     private companion object {
         const val CONVERSATION_REF = "conversation-1"

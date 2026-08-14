@@ -43,15 +43,17 @@ class RedisMultiInstanceRealtimeFanoutIntegrationTest {
         val json = Json { ignoreUnknownKeys = false }
         val codec = RealtimeFanoutEnvelopeCodec(json)
         val authorizationCount = AtomicInteger()
-        val hubA = authorizedHub("a", authorizationCount)
-        val hubB = authorizedHub("b", authorizationCount)
+        val hubA = authorizedHub(authorizationCount)
+        val hubB = authorizedHub(authorizationCount)
         val fanoutA = MultiInstanceRealtimeFanout(hubA, transportA, { loader }, codec)
         val fanoutB = MultiInstanceRealtimeFanout(hubB, transportB, { loader }, codec)
         val messagesA = CopyOnWriteArrayList<DurableMessageCreatedEvent>()
         val messagesB = CopyOnWriteArrayList<DurableMessageCreatedEvent>()
+        val messagesBSecondDevice = CopyOnWriteArrayList<DurableMessageCreatedEvent>()
         val leaked = CopyOnWriteArrayList<DurableMessageCreatedEvent>()
         val receiptsA = CopyOnWriteArrayList<DurableReceiptCursorEvent>()
         val receiptsB = CopyOnWriteArrayList<DurableReceiptCursorEvent>()
+        val receiptsBSecondDevice = CopyOnWriteArrayList<DurableReceiptCursorEvent>()
 
         try {
             fanoutA.start()
@@ -68,16 +70,24 @@ class RedisMultiInstanceRealtimeFanoutIntegrationTest {
                     MessageCreatedEventSink(messagesB::add),
                     ReceiptCursorEventSink(receiptsB::add),
                 )
+            val registrationBSecondDevice =
+                hubB.register(
+                    clientPrincipal(),
+                    MessageCreatedEventSink(messagesBSecondDevice::add),
+                    ReceiptCursorEventSink(receiptsBSecondDevice::add),
+                )
             val outsider = hubB.register(outsiderPrincipal(), MessageCreatedEventSink(leaked::add))
             hubA.subscribe(registrationA, CONVERSATION_REF)
             hubB.subscribe(registrationB, CONVERSATION_REF)
+            hubB.subscribe(registrationBSecondDevice, CONVERSATION_REF)
             hubB.subscribe(outsider, OTHER_CONVERSATION_REF)
 
             awaitSubscribers(transportA)
             fanoutA.publish(message)
-            awaitCondition { messagesB.size == 1 }
+            awaitCondition { messagesB.size == 1 && messagesBSecondDevice.size == 1 }
             assertEquals(listOf(message), messagesA.toList())
             assertEquals(listOf(message), messagesB.toList())
+            assertEquals(listOf(message), messagesBSecondDevice.toList())
             assertEquals(0, leaked.size)
 
             val duplicate = codec.encode(
@@ -87,11 +97,13 @@ class RedisMultiInstanceRealtimeFanoutIntegrationTest {
             delay(300)
             assertEquals(1, messagesA.size)
             assertEquals(1, messagesB.size)
+            assertEquals(1, messagesBSecondDevice.size)
 
             fanoutA.publishReceipt(receipt)
-            awaitCondition { receiptsB.size == 1 }
+            awaitCondition { receiptsB.size == 1 && receiptsBSecondDevice.size == 1 }
             assertEquals(listOf(receipt), receiptsA.toList())
             assertEquals(listOf(receipt), receiptsB.toList())
+            assertEquals(listOf(receipt), receiptsBSecondDevice.toList())
             assertTrue(authorizationCount.get() >= 4)
             assertEquals(0, leaked.size)
         } finally {
@@ -135,17 +147,14 @@ class RedisMultiInstanceRealtimeFanoutIntegrationTest {
         error("Expected fan-out delivery was not observed")
     }
 
-    private fun authorizedHub(prefix: String, authorizationCount: AtomicInteger): AuthorizedConversationEventHub {
-        val registrations = AtomicInteger()
-        return AuthorizedConversationEventHub(
+    private fun authorizedHub(authorizationCount: AtomicInteger): AuthorizedConversationEventHub =
+        AuthorizedConversationEventHub(
             authorizer =
             ConversationSubscriptionAuthorizer { request ->
                 authorizationCount.incrementAndGet()
                 ConversationSubscriptionAuthorizationResult.Authorized(request.conversationRef, 1)
             },
-            registrationRefFactory = { "$prefix-registration-${registrations.incrementAndGet()}" },
         )
-    }
 
     private class FixedPayloadLoader(
         private val message: DurableMessageCreatedEvent,

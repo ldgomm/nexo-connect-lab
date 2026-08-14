@@ -7,8 +7,6 @@ import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.RealtimeFanoutEnve
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
 
 fun interface MessageCreatedEventPublisher {
     suspend fun publish(event: DurableMessageCreatedEvent): MessageCreatedPublicationReport
@@ -22,61 +20,32 @@ fun interface ReceiptCursorEventSink {
     suspend fun emit(event: DurableReceiptCursorEvent)
 }
 
-data class RealtimeConnectionRegistration(val registrationRef: String)
-
 data class MessageCreatedPublicationReport(val eligibleSubscriptions: Int, val deliveredSubscriptions: Int)
 
 data class ReceiptCursorPublicationReport(val eligibleSubscriptions: Int, val deliveredSubscriptions: Int)
 
 class AuthorizedConversationEventHub(
     private val authorizer: ConversationSubscriptionAuthorizer,
-    private val registrationRefFactory: () -> String = { "socket-${UUID.randomUUID()}" },
+    private val connectionRegistry: EphemeralRealtimeConnectionRegistry = EphemeralRealtimeConnectionRegistry(),
 ) : MessageCreatedEventPublisher {
-    private data class ConnectionState(
-        val principal: ConnectPrincipal,
-        val subscribedConversationRefs: MutableSet<String>,
-        val messageSink: MessageCreatedEventSink,
-        val receiptSink: ReceiptCursorEventSink,
-    )
-
-    private val connections = ConcurrentHashMap<String, ConnectionState>()
-
     fun register(
         principal: ConnectPrincipal,
         sink: MessageCreatedEventSink,
         receiptSink: ReceiptCursorEventSink = ReceiptCursorEventSink { },
-    ): RealtimeConnectionRegistration {
-        val registration = RealtimeConnectionRegistration(registrationRefFactory())
-        check(
-            connections.putIfAbsent(
-                registration.registrationRef,
-                ConnectionState(
-                    principal = principal,
-                    subscribedConversationRefs = ConcurrentHashMap.newKeySet(),
-                    messageSink = sink,
-                    receiptSink = receiptSink,
-                ),
-            ) == null,
-        ) { "Realtime registration reference collision" }
-        return registration
-    }
+    ): RealtimeConnectionRegistration = connectionRegistry.register(principal, sink, receiptSink)
 
     fun subscribe(registration: RealtimeConnectionRegistration, conversationRef: String) {
-        val connection = checkNotNull(connections[registration.registrationRef]) {
-            "Realtime connection is not registered"
-        }
-        connection.subscribedConversationRefs += conversationRef
+        connectionRegistry.subscribe(registration, conversationRef)
     }
 
+    fun touch(registration: RealtimeConnectionRegistration): Boolean = connectionRegistry.touch(registration)
+
     fun unregister(registration: RealtimeConnectionRegistration) {
-        connections.remove(registration.registrationRef)
+        connectionRegistry.unregister(registration)
     }
 
     override suspend fun publish(event: DurableMessageCreatedEvent): MessageCreatedPublicationReport {
-        val candidates =
-            connections.values.filter { connection ->
-                event.conversationRef in connection.subscribedConversationRefs
-            }
+        val candidates = connectionRegistry.candidates(event.conversationRef)
         var delivered = 0
 
         candidates.forEach { connection ->
@@ -121,14 +90,10 @@ class AuthorizedConversationEventHub(
         excludedRegistration: RealtimeConnectionRegistration? = null,
     ): ReceiptCursorPublicationReport {
         val conversationRef = event.cursor.conversationRef
-        val candidates =
-            connections.entries.filter { (registrationRef, connection) ->
-                registrationRef != excludedRegistration?.registrationRef &&
-                    conversationRef in connection.subscribedConversationRefs
-            }
+        val candidates = connectionRegistry.candidates(conversationRef, excludedRegistration)
         var delivered = 0
 
-        candidates.forEach { (_, connection) ->
+        candidates.forEach { connection ->
             val authorization =
                 try {
                     withContext(Dispatchers.IO) {
@@ -217,12 +182,15 @@ class AuthorizedConversationEventHub(
         return ReceiptCursorPublicationReport(candidates.size, delivered)
     }
 
-    private fun messageCandidates(conversationRef: String): List<ConnectionState> =
-        connections.values.filter { connection ->
-            conversationRef in connection.subscribedConversationRefs
-        }
+    internal fun activeConnectionCount(): Int = connectionRegistry.activeConnectionCount()
 
-    private suspend fun authorize(connection: ConnectionState, conversationRef: String): Boolean = try {
+    internal fun activeConnectionCount(principal: ConnectPrincipal): Int =
+        connectionRegistry.activeConnectionCount(principal)
+
+    private fun messageCandidates(conversationRef: String): List<RegisteredRealtimeConnection> =
+        connectionRegistry.candidates(conversationRef)
+
+    private suspend fun authorize(connection: RegisteredRealtimeConnection, conversationRef: String): Boolean = try {
         withContext(Dispatchers.IO) {
             authorizer.authorize(
                 AuthorizeConversationSubscriptionRequest(
@@ -261,7 +229,10 @@ class AuthorizedConversationEventHub(
         null
     }
 
-    private suspend fun emitMessage(connection: ConnectionState, event: DurableMessageCreatedEvent): Boolean = try {
+    private suspend fun emitMessage(
+        connection: RegisteredRealtimeConnection,
+        event: DurableMessageCreatedEvent,
+    ): Boolean = try {
         connection.messageSink.emit(event)
         true
     } catch (cancelled: CancellationException) {
@@ -270,7 +241,10 @@ class AuthorizedConversationEventHub(
         false
     }
 
-    private suspend fun emitReceipt(connection: ConnectionState, event: DurableReceiptCursorEvent): Boolean = try {
+    private suspend fun emitReceipt(
+        connection: RegisteredRealtimeConnection,
+        event: DurableReceiptCursorEvent,
+    ): Boolean = try {
         connection.receiptSink.emit(event)
         true
     } catch (cancelled: CancellationException) {

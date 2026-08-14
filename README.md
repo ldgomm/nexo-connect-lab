@@ -59,3 +59,8 @@ instances through the versioned Redis Pub/Sub channels. Notifications contain
 only opaque durable references; each destination reauthorises the subscription
 and reloads the payload from PostgreSQL. Missed live signals are repaired by
 the existing authorised catch-up path.
+
+Each WebSocket is also represented by a bounded TTL registry entry with
+independent opaque connection, device and session references. The same subject
+may hold several routes on one or many instances. Receipt updates exclude only
+their exact origin route and continue to the subject's other devices.

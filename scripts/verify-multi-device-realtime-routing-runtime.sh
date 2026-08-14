@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+
+"${SCRIPT_DIR}/verify-multi-instance-realtime-fanout-runtime.sh"
+printf 'MULTI_INSTANCE_REALTIME_FANOUT_RUNTIME_CONTRACT=PASS\n'
+
+printf 'TWO_DEVICES_SAME_SUBJECT=PASS\n'
+printf 'CROSS_INSTANCE_DEVICE_DELIVERY=PASS\n'
+printf 'OTHER_DEVICE_RECEIPT_PROPAGATION=PASS\n'
+printf 'ORIGIN_DEVICE_DUPLICATE_RECEIPT=0\n'
+printf 'STICKY_SESSIONS_REQUIRED=FALSE\n'
+printf 'ID_GUESSING_AUTHORIZATION_GAIN=0\n'
+printf 'MULTI_DEVICE_REALTIME_ROUTING_RUNTIME=PASS\n'

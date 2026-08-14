@@ -47,6 +47,9 @@ data class ClientRealtimeFrame(
 data class AuthenticatedRealtimeSubject(val subjectRef: String, val actorType: String)
 
 @Serializable
+data class RealtimeRoutingRefs(val connectionRef: String, val deviceRef: String, val sessionRef: String)
+
+@Serializable
 data class RealtimeProtocolError(val code: String, val retryable: Boolean)
 
 @Serializable
@@ -80,6 +83,7 @@ data class ServerRealtimeFrame(
     val serverTimestamp: String,
     val correlationId: String? = null,
     val subject: AuthenticatedRealtimeSubject? = null,
+    val routing: RealtimeRoutingRefs? = null,
     val error: RealtimeProtocolError? = null,
     val conversationRef: String? = null,
     val lastMessageSequence: Long? = null,

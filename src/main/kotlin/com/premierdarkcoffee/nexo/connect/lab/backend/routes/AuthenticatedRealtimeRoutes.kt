@@ -8,6 +8,7 @@ import com.premierdarkcoffee.nexo.connect.lab.application.persistence.LoadDurabl
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.AuthorizeConversationSubscriptionRequest
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.ConversationSubscriptionAuthorizationResult
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.DurableConversationCatchUpResult
+import com.premierdarkcoffee.nexo.connect.lab.application.realtime.EphemeralRealtimeConnectionRegistry
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.LoadDurableConversationCatchUpRequest
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.MessageCreatedEventSink
 import com.premierdarkcoffee.nexo.connect.lab.application.realtime.RealtimeConnectionRegistration
@@ -26,6 +27,7 @@ import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.RealtimeMessageCre
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.RealtimeProtocol
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.RealtimeProtocolError
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.RealtimeReceiptCursorPayload
+import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.RealtimeRoutingRefs
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.ServerRealtimeFrame
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.ServerRealtimeFrameType
 import com.premierdarkcoffee.nexo.connect.lab.domain.realtime.validateEnvelope
@@ -43,6 +45,9 @@ import io.ktor.websocket.readText
 import io.ktor.websocket.send
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
@@ -95,6 +100,16 @@ fun Route.authenticatedRealtimeRoutes(application: Application) {
                     connectionLease.close()
                     throw failure
                 }
+            val registryRefreshJob =
+                launch {
+                    while (isActive) {
+                        delay(EphemeralRealtimeConnectionRegistry.REFRESH_INTERVAL.toMillis())
+                        if (!runtime.conversationEventHub.touch(registration)) {
+                            close(CloseReason(CloseReason.Codes.TRY_AGAIN_LATER, "ROUTING_LEASE_EXPIRED"))
+                            break
+                        }
+                    }
+                }
 
             try {
                 sendServerFrame(
@@ -108,6 +123,12 @@ fun Route.authenticatedRealtimeRoutes(application: Application) {
                             subjectRef = authenticated.connectPrincipal.subjectRef,
                             actorType = authenticated.connectPrincipal.actorType.name,
                         ),
+                        routing =
+                        RealtimeRoutingRefs(
+                            connectionRef = registration.registrationRef,
+                            deviceRef = registration.deviceRef,
+                            sessionRef = registration.sessionRef,
+                        ),
                     ),
                 )
 
@@ -115,6 +136,15 @@ fun Route.authenticatedRealtimeRoutes(application: Application) {
                 for (frame in incoming) {
                     when (frame) {
                         is Frame.Text -> {
+                            if (!runtime.conversationEventHub.touch(registration)) {
+                                close(
+                                    CloseReason(
+                                        CloseReason.Codes.TRY_AGAIN_LATER,
+                                        "ROUTING_LEASE_EXPIRED",
+                                    ),
+                                )
+                                break
+                            }
                             val text = frame.readText()
                             if (text.toByteArray(Charsets.UTF_8).size > RealtimeProtocol.MAX_TEXT_FRAME_BYTES) {
                                 closeWithError(runtime, "FRAME_TOO_LARGE", CloseReason.Codes.TOO_BIG)
@@ -164,6 +194,7 @@ fun Route.authenticatedRealtimeRoutes(application: Application) {
                     }
                 }
             } finally {
+                registryRefreshJob.cancel()
                 runtime.conversationEventHub.unregister(registration)
                 outboundSender.shutdown()
                 connectionLease.close()

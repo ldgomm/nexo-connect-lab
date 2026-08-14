@@ -30,10 +30,12 @@ class MultiInstanceRealtimeFanoutTest {
         val nodeB = node("instance-b", bus, loader, revokedSubjects)
         val aMessages = mutableListOf<DurableMessageCreatedEvent>()
         val bMessages = mutableListOf<DurableMessageCreatedEvent>()
+        val bSecondDeviceMessages = mutableListOf<DurableMessageCreatedEvent>()
         val leakedMessages = mutableListOf<DurableMessageCreatedEvent>()
         val aReceipts = mutableListOf<DurableReceiptCursorEvent>()
         val aSecondDeviceReceipts = mutableListOf<DurableReceiptCursorEvent>()
         val bReceipts = mutableListOf<DurableReceiptCursorEvent>()
+        val bSecondDeviceReceipts = mutableListOf<DurableReceiptCursorEvent>()
 
         val aOrigin =
             nodeA.hub.register(
@@ -53,6 +55,12 @@ class MultiInstanceRealtimeFanoutTest {
                 MessageCreatedEventSink { bMessages += it },
                 ReceiptCursorEventSink { bReceipts += it },
             )
+        val bSecondDevice =
+            nodeB.hub.register(
+                clientPrincipal(),
+                MessageCreatedEventSink { bSecondDeviceMessages += it },
+                ReceiptCursorEventSink { bSecondDeviceReceipts += it },
+            )
         val outsider =
             nodeB.hub.register(
                 outsiderPrincipal(),
@@ -60,30 +68,36 @@ class MultiInstanceRealtimeFanoutTest {
             )
         listOf(aOrigin, aSecondDevice).forEach { nodeA.hub.subscribe(it, CONVERSATION_REF) }
         nodeB.hub.subscribe(bRegistration, CONVERSATION_REF)
+        nodeB.hub.subscribe(bSecondDevice, CONVERSATION_REF)
         nodeB.hub.subscribe(outsider, OTHER_CONVERSATION_REF)
 
         nodeA.fanout.publish(message)
         assertEquals(listOf(message), aMessages)
         assertEquals(listOf(message), bMessages)
+        assertEquals(listOf(message), bSecondDeviceMessages)
         assertEquals(emptyList(), leakedMessages)
 
         bus.replayLast()
         assertEquals(1, aMessages.size)
         assertEquals(1, bMessages.size)
+        assertEquals(1, bSecondDeviceMessages.size)
 
         nodeA.fanout.publishReceipt(receipt, excludedRegistration = aOrigin)
         assertEquals(emptyList(), aReceipts)
         assertEquals(listOf(receipt), aSecondDeviceReceipts)
         assertEquals(listOf(receipt), bReceipts)
+        assertEquals(listOf(receipt), bSecondDeviceReceipts)
         bus.replayLast()
         assertEquals(1, aSecondDeviceReceipts.size)
         assertEquals(1, bReceipts.size)
+        assertEquals(1, bSecondDeviceReceipts.size)
 
         revokedSubjects += "client-1"
         val secondMessage = messageEvent(sequence = 2)
         loader.message = secondMessage
         nodeA.fanout.publish(secondMessage)
         assertEquals(1, bMessages.size)
+        assertEquals(1, bSecondDeviceMessages.size)
         assertTrue(nodeB.authorizationAttempts.get() >= 3)
         assertEquals(0, leakedMessages.size)
         assertFalse(bus.closed)
@@ -124,7 +138,6 @@ class MultiInstanceRealtimeFanoutTest {
                         )
                     }
                 },
-                registrationRefFactory = sequentialRegistrationRefs(instanceRef),
             )
         val transport = bus.transport(instanceRef)
         val fanout =
@@ -244,11 +257,6 @@ class MultiInstanceRealtimeFanoutTest {
         actorType = ConnectActorType.CLIENT,
         platformScopeRef = "platform",
     )
-
-    private fun sequentialRegistrationRefs(prefix: String): () -> String {
-        val next = AtomicInteger()
-        return { "$prefix-registration-${next.incrementAndGet()}" }
-    }
 
     private companion object {
         const val CONVERSATION_REF = "conversation-1"

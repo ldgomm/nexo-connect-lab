@@ -122,9 +122,11 @@ required_files=(
     docs/architecture/ADR-001_CONNECT_MULTI_INSTANCE_EPHEMERAL_REDIS_FANOUT.md
     docs/architecture/CONNECT_12_EPHEMERAL_REDIS_CLIENT_BOUNDARY.md
     docs/architecture/CONNECT_13_MULTI_INSTANCE_REALTIME_FANOUT.md
+    docs/architecture/CONNECT_14_MULTI_DEVICE_REALTIME_ROUTING.md
     docs/architecture/connect-multi-instance-fanout-contract.properties
     docs/architecture/connect-redis-ephemeral-boundary.properties
     docs/architecture/connect-realtime-fanout.properties
+    docs/architecture/connect-multi-device-routing.properties
     docs/governance/CONNECT_PHASE_GOVERNANCE.md
     docs/governance/INTELLIJ_FORMATTING.md
     docs/governance/SEMANTIC_ACCEPTANCE_GATES.md
@@ -154,6 +156,8 @@ required_files=(
     scripts/verify-multi-instance-fanout-architecture.sh
     scripts/verify-multi-instance-realtime-fanout.sh
     scripts/verify-multi-instance-realtime-fanout-runtime.sh
+    scripts/verify-multi-device-realtime-routing.sh
+    scripts/verify-multi-device-realtime-routing-runtime.sh
     scripts/verify-redis-ephemeral-boundary.sh
     scripts/verify-redis-loss-durable-isolation.sh
     settings.gradle.kts
@@ -169,6 +173,7 @@ required_files=(
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/RealtimeFanoutEnvelopeCodec.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/AuthorisedDurableFanoutPayloadLoader.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/MultiInstanceRealtimeFanout.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/EphemeralRealtimeConnectionRegistry.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/realtime/RealtimeTransport.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/realtime/RealtimeTransportHardening.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutes.kt
@@ -206,8 +211,10 @@ required_files=(
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRoutesTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend/routes/AuthenticatedRealtimeRuntimeTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/RealtimeProtocolTest.kt
+    src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/RealtimeRoutingProtocolTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/ConversationSubscriptionAuthorizerTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/AuthorizedConversationEventHubTest.kt
+    src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/EphemeralRealtimeConnectionRegistryTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/DurableTextMessageCoordinatorTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/DurableMessageCreatedEventTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/DurableConversationCatchUpTest.kt
@@ -330,6 +337,8 @@ bash -n scripts/verify-formatting-convergence.sh
 bash -n scripts/verify-multi-instance-fanout-architecture.sh
 bash -n scripts/verify-multi-instance-realtime-fanout.sh
 bash -n scripts/verify-multi-instance-realtime-fanout-runtime.sh
+bash -n scripts/verify-multi-device-realtime-routing.sh
+bash -n scripts/verify-multi-device-realtime-routing-runtime.sh
 bash -n scripts/verify-redis-ephemeral-boundary.sh
 bash -n scripts/verify-redis-loss-durable-isolation.sh
 bash -n docker/postgres/init/001-create-connect-app-role.sh
@@ -354,6 +363,9 @@ printf 'REDIS_EPHEMERAL_BOUNDARY_CONTRACT=PASS\n'
 
 ./scripts/verify-multi-instance-realtime-fanout.sh
 printf 'MULTI_INSTANCE_REALTIME_FANOUT_CONTRACT=PASS\n'
+
+./scripts/verify-multi-device-realtime-routing.sh
+printf 'MULTI_DEVICE_REALTIME_ROUTING_CONTRACT=PASS\n'
 
 CONNECT_C5_MIGRATION_DIRECTORY="src/main/resources/db/migration"
 CONNECT_C5_MIGRATION_FILE_COUNT="$(
@@ -776,8 +788,8 @@ printf 'REALTIME_TRANSPORT_HARDENING=PASS\n'
 ./scripts/verify-realtime-capacity-baseline.sh
 printf 'REALTIME_SINGLE_INSTANCE_CAPACITY=PASS\n'
 
-./scripts/verify-multi-instance-realtime-fanout-runtime.sh
-printf 'MULTI_INSTANCE_REALTIME_FANOUT_RUNTIME_CONTRACT=PASS\n'
+./scripts/verify-multi-device-realtime-routing-runtime.sh
+printf 'MULTI_DEVICE_REALTIME_ROUTING_RUNTIME_CONTRACT=PASS\n'
 
 ./scripts/verify-postgres-schema.sh
 printf 'POSTGRES_SCHEMA_CONTRACT=PASS\n'

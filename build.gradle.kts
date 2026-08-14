@@ -80,6 +80,7 @@ tasks.register<Test>("semanticAcceptanceTest") {
     filter {
         includeTestsMatching("*.SemanticAcceptanceGateTest")
         includeTestsMatching("*.RealtimeProtocolTest")
+        includeTestsMatching("*.RealtimeRoutingProtocolTest")
         includeTestsMatching("*.DurableTextAuthorizationContractTest")
         includeTestsMatching("*.ConversationSubscriptionAuthorizerTest")
         includeTestsMatching("*.RealtimeTransportHardeningTest")
@@ -93,6 +94,7 @@ tasks.register<Test>("semanticAcceptanceTest") {
         includeTestsMatching("*.RealtimeFanoutEnvelopeTest")
         includeTestsMatching("*.MultiInstanceRealtimeFanoutTest")
         includeTestsMatching("*.RedisRealtimeFanoutConfigTest")
+        includeTestsMatching("*.EphemeralRealtimeConnectionRegistryTest")
     }
 }
 
@@ -105,6 +107,20 @@ tasks.register<Test>("multiInstanceRealtimeFanoutTest") {
         includeTestsMatching("*.RealtimeFanoutEnvelopeTest")
         includeTestsMatching("*.MultiInstanceRealtimeFanoutTest")
         includeTestsMatching("*.RedisRealtimeFanoutConfigTest")
+    }
+}
+
+tasks.register<Test>("multiDeviceRealtimeRoutingTest") {
+    description = "Verifies opaque, TTL-bound multi-device realtime routing."
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    filter {
+        includeTestsMatching("*.EphemeralRealtimeConnectionRegistryTest")
+        includeTestsMatching("*.AuthorizedConversationEventHubTest")
+        includeTestsMatching("*.MultiInstanceRealtimeFanoutTest")
+        includeTestsMatching("*.RealtimeProtocolTest")
+        includeTestsMatching("*.RealtimeRoutingProtocolTest")
     }
 }
 
