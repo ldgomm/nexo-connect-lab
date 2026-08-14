@@ -67,10 +67,10 @@ require_property "$POLICY_FILE" baseline.head 558d702bd5e7729721cde71d0e30805137
 require_property "$POLICY_FILE" baseline.parent e330359dc6602e9a33da891b5fdb64ed8c199f38
 require_property "$POLICY_FILE" baseline.commit_count 31
 require_property "$POLICY_FILE" baseline.subject .
-require_property "$POLICY_FILE" accepted.phase CONNECT.13
-require_property "$POLICY_FILE" accepted.head 6442ef285a30f7836d75bba4ddb4452fb56a7a39
-require_property "$POLICY_FILE" establishing.phase CONNECT.14
-require_property "$POLICY_FILE" next.phase CONNECT.15
+require_property "$POLICY_FILE" accepted.phase CONNECT.14
+require_property "$POLICY_FILE" accepted.head 92178a12832024b3019e583392fb3a4edee608e7
+require_property "$POLICY_FILE" establishing.phase CONNECT.15
+require_property "$POLICY_FILE" next.phase CONNECT.16
 require_property "$POLICY_FILE" commits.per.phase 1
 require_property "$POLICY_FILE" intermediate.commits forbidden
 require_property "$POLICY_FILE" commit.before.full_pass forbidden
@@ -140,6 +140,12 @@ require_property "$POLICY_FILE" connect.fanout.repair postgresql_sequence_and_au
     fail "CONNECT_13_COMMIT_COUNT_MISMATCH"
 [[ "$(git show -s --format=%s 6442ef285a30f7836d75bba4ddb4452fb56a7a39 2>/dev/null || true)" == \
     "feat(connect): [CONNECT.13] add multi-instance realtime fanout" ]] || fail "CONNECT_13_SUBJECT_MISMATCH"
+[[ "$(git rev-parse 92178a12832024b3019e583392fb3a4edee608e7^ 2>/dev/null || true)" == \
+    "6442ef285a30f7836d75bba4ddb4452fb56a7a39" ]] || fail "CONNECT_14_PARENT_MISMATCH"
+[[ "$(git rev-list --count 92178a12832024b3019e583392fb3a4edee608e7 2>/dev/null || true)" == "38" ]] ||
+    fail "CONNECT_14_COMMIT_COUNT_MISMATCH"
+[[ "$(git show -s --format=%s 92178a12832024b3019e583392fb3a4edee608e7 2>/dev/null || true)" == \
+    "feat(connect): [CONNECT.14] coordinate multi-device realtime sessions" ]] || fail "CONNECT_14_SUBJECT_MISMATCH"
 
 require_property "$OWNERSHIP_FILE" manifest.version 1
 require_property "$OWNERSHIP_FILE" nexo_core.owns identity,business,branch,products,orders,payments,inventory,fiscal,accounting
@@ -153,7 +159,7 @@ require_property "$OWNERSHIP_FILE" connect.nexo_business_mutation forbidden
 require_property "$OWNERSHIP_FILE" connect.country_specific_legal_logic forbidden
 require_property "$OWNERSHIP_FILE" integration.first_phase CONNECT.46
 
-expected_phases="CONNECT.B CONNECT.C1 CONNECT.C2 CONNECT.C3 CONNECT.C4 CONNECT.C5 CONNECT.C6 CONNECT.07 CONNECT.USER.BASELINE CONNECT.08 CONNECT.09 CONNECT.10 CONNECT.11 CONNECT.12 CONNECT.13"
+expected_phases="CONNECT.B CONNECT.C1 CONNECT.C2 CONNECT.C3 CONNECT.C4 CONNECT.C5 CONNECT.C6 CONNECT.07 CONNECT.USER.BASELINE CONNECT.08 CONNECT.09 CONNECT.10 CONNECT.11 CONNECT.12 CONNECT.13 CONNECT.14"
 actual_phases=""
 baseline_count=0
 current_count=0
@@ -180,13 +186,13 @@ while IFS=$'\t' read -r record phase status commit subject; do
             ;;
         CURRENT)
             current_count=$((current_count + 1))
-            [[ "$phase" == "CONNECT.14" && "$status" == "IMPLEMENTING" && "$commit" == "DISCOVER_BY_SUBJECT" ]] ||
+            [[ "$phase" == "CONNECT.15" && "$status" == "IMPLEMENTING" && "$commit" == "DISCOVER_BY_SUBJECT" ]] ||
                 fail "LEDGER_CURRENT_MISMATCH"
             current_subject="$subject"
             ;;
         NEXT)
             next_count=$((next_count + 1))
-            [[ "$phase" == "CONNECT.15" && "$status" == "LOCKED" && "$commit" == "-" ]] ||
+            [[ "$phase" == "CONNECT.16" && "$status" == "LOCKED" && "$commit" == "-" ]] ||
                 fail "LEDGER_NEXT_MISMATCH"
             ;;
         "")
@@ -197,23 +203,23 @@ while IFS=$'\t' read -r record phase status commit subject; do
     esac
 done < "$LEDGER_FILE"
 
-[[ "$baseline_count" -eq 15 && "$actual_phases" == "$expected_phases" ]] ||
+[[ "$baseline_count" -eq 16 && "$actual_phases" == "$expected_phases" ]] ||
     fail "LEDGER_BASELINE_SEQUENCE_MISMATCH"
 [[ "$current_count" -eq 1 && "$next_count" -eq 1 ]] || fail "LEDGER_PHASE_CARDINALITY_MISMATCH"
 
-connect_14_matches="$(git log HEAD --format='%H%x09%s' | awk -F '\t' -v expected="$current_subject" '$2 == expected { print $1 }')"
-connect_14_count="$(printf '%s\n' "$connect_14_matches" | awk 'NF { count++ } END { print count + 0 }')"
+connect_15_matches="$(git log HEAD --format='%H%x09%s' | awk -F '\t' -v expected="$current_subject" '$2 == expected { print $1 }')"
+connect_15_count="$(printf '%s\n' "$connect_15_matches" | awk 'NF { count++ } END { print count + 0 }')"
 
-if [[ "$connect_14_count" == "0" ]]; then
-    [[ "$(git rev-parse HEAD)" == "6442ef285a30f7836d75bba4ddb4452fb56a7a39" ]] ||
-        fail "CONNECT_14_COMMIT_MISSING_AFTER_BASELINE"
-elif [[ "$connect_14_count" == "1" ]]; then
-    connect_14_commit="$connect_14_matches"
-    [[ "$(git rev-parse "${connect_14_commit}^")" == "6442ef285a30f7836d75bba4ddb4452fb56a7a39" ]] ||
-        fail "CONNECT_14_PARENT_MISMATCH"
-    git merge-base --is-ancestor "$connect_14_commit" HEAD || fail "CONNECT_14_NOT_ANCESTOR"
+if [[ "$connect_15_count" == "0" ]]; then
+    [[ "$(git rev-parse HEAD)" == "92178a12832024b3019e583392fb3a4edee608e7" ]] ||
+        fail "CONNECT_15_COMMIT_MISSING_AFTER_BASELINE"
+elif [[ "$connect_15_count" == "1" ]]; then
+    connect_15_commit="$connect_15_matches"
+    [[ "$(git rev-parse "${connect_15_commit}^")" == "92178a12832024b3019e583392fb3a4edee608e7" ]] ||
+        fail "CONNECT_15_PARENT_MISMATCH"
+    git merge-base --is-ancestor "$connect_15_commit" HEAD || fail "CONNECT_15_NOT_ANCESTOR"
 else
-    fail "CONNECT_14_COMMIT_NOT_UNIQUE"
+    fail "CONNECT_15_COMMIT_NOT_UNIQUE"
 fi
 
 if [[ "$REQUIRE_EMPTY_TRACKED_WATCH" -eq 1 ]]; then
@@ -233,7 +239,7 @@ fi
 printf 'PHASE_GOVERNANCE=PASS\n'
 printf 'BASELINE_CONNECT_07=PASS\n'
 printf 'USER_BASELINE=PASS\n'
-printf 'ACCEPTED_CONNECT_13=PASS\n'
+printf 'ACCEPTED_CONNECT_14=PASS\n'
 printf 'OWNERSHIP_MANIFEST=PASS\n'
 printf 'ONE_COMMIT_POLICY=PASS\n'
 printf 'MANUAL_IDE_ACTIONS=FORBIDDEN\n'

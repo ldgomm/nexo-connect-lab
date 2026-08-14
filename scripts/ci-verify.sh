@@ -123,10 +123,12 @@ required_files=(
     docs/architecture/CONNECT_12_EPHEMERAL_REDIS_CLIENT_BOUNDARY.md
     docs/architecture/CONNECT_13_MULTI_INSTANCE_REALTIME_FANOUT.md
     docs/architecture/CONNECT_14_MULTI_DEVICE_REALTIME_ROUTING.md
+    docs/architecture/CONNECT_15_REDIS_LOSS_RECOVERY.md
     docs/architecture/connect-multi-instance-fanout-contract.properties
     docs/architecture/connect-redis-ephemeral-boundary.properties
     docs/architecture/connect-realtime-fanout.properties
     docs/architecture/connect-multi-device-routing.properties
+    docs/architecture/connect-redis-loss-recovery.properties
     docs/governance/CONNECT_PHASE_GOVERNANCE.md
     docs/governance/INTELLIJ_FORMATTING.md
     docs/governance/SEMANTIC_ACCEPTANCE_GATES.md
@@ -158,6 +160,8 @@ required_files=(
     scripts/verify-multi-instance-realtime-fanout-runtime.sh
     scripts/verify-multi-device-realtime-routing.sh
     scripts/verify-multi-device-realtime-routing-runtime.sh
+    scripts/verify-redis-loss-recovery.sh
+    scripts/verify-redis-loss-recovery-runtime.sh
     scripts/verify-redis-ephemeral-boundary.sh
     scripts/verify-redis-loss-durable-isolation.sh
     settings.gradle.kts
@@ -232,6 +236,7 @@ required_files=(
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/MultiInstanceRealtimeFanoutTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisRealtimeFanoutConfigTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisMultiInstanceRealtimeFanoutIntegrationTest.kt
+    src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisLossRecoveryContractTest.kt
 )
 
 for required_file in "${required_files[@]}"; do
@@ -339,6 +344,8 @@ bash -n scripts/verify-multi-instance-realtime-fanout.sh
 bash -n scripts/verify-multi-instance-realtime-fanout-runtime.sh
 bash -n scripts/verify-multi-device-realtime-routing.sh
 bash -n scripts/verify-multi-device-realtime-routing-runtime.sh
+bash -n scripts/verify-redis-loss-recovery.sh
+bash -n scripts/verify-redis-loss-recovery-runtime.sh
 bash -n scripts/verify-redis-ephemeral-boundary.sh
 bash -n scripts/verify-redis-loss-durable-isolation.sh
 bash -n docker/postgres/init/001-create-connect-app-role.sh
@@ -366,6 +373,9 @@ printf 'MULTI_INSTANCE_REALTIME_FANOUT_CONTRACT=PASS\n'
 
 ./scripts/verify-multi-device-realtime-routing.sh
 printf 'MULTI_DEVICE_REALTIME_ROUTING_CONTRACT=PASS\n'
+
+./scripts/verify-redis-loss-recovery.sh
+printf 'REDIS_LOSS_RECOVERY_CONTRACT=PASS\n'
 
 CONNECT_C5_MIGRATION_DIRECTORY="src/main/resources/db/migration"
 CONNECT_C5_MIGRATION_FILE_COUNT="$(
@@ -800,8 +810,8 @@ printf 'POSTGRES_REPOSITORY_CONTRACT=PASS\n'
 ./scripts/verify-durable-restart-recovery.sh
 printf 'DURABLE_RESTART_RECOVERY_CONTRACT=PASS\n'
 
-./scripts/verify-redis-loss-durable-isolation.sh
-printf 'REDIS_LOSS_DURABLE_ISOLATION_CONTRACT=PASS\n'
+./scripts/verify-redis-loss-recovery-runtime.sh
+printf 'REDIS_LOSS_RECOVERY_RUNTIME_CONTRACT=PASS\n'
 
 ./scripts/verify-database-lifecycle.sh
 printf 'DATABASE_LIFECYCLE_CONTRACT=PASS\n'

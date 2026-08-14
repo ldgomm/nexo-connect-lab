@@ -64,3 +64,9 @@ Each WebSocket is also represented by a bounded TTL registry entry with
 independent opaque connection, device and session references. The same subject
 may hold several routes on one or many instances. Receipt updates exclude only
 their exact origin route and continue to the subject's other devices.
+
+The Redis recovery gate injects `FLUSHDB`, a bounded non-responsive partition,
+a complete stop and a rejoin. Durable readiness remains available, PostgreSQL
+history and receipt cursors remain unchanged, missed live signals are repaired
+through authorised catch-up, and live multi-device fan-out resumes after
+rejoin without acknowledged loss or durable duplicates.

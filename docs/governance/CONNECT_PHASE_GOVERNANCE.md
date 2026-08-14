@@ -5,11 +5,11 @@
 - Programme: `NEXO_CONNECT_LAB`
 - Repository: `connect-lab`
 - Branch: `main`
-- Accepted phase: `CONNECT.13`
-- Accepted HEAD: `6442ef285a30f7836d75bba4ddb4452fb56a7a39`
+- Accepted phase: `CONNECT.14`
+- Accepted HEAD: `92178a12832024b3019e583392fb3a4edee608e7`
 - Immutable user baseline: `558d702bd5e7729721cde71d0e3080513798dcdd`
-- Active phase: `CONNECT.14`
-- Next phase after acceptance: `CONNECT.15`
+- Active phase: `CONNECT.15`
+- Next phase after acceptance: `CONNECT.16`
 
 `CONNECT.07` is the accepted governance commit `e330359...`; its historical
 subject used the temporary label `[CONNECT.01]`. The hash is preserved and the
@@ -79,6 +79,11 @@ registry. Server-generated connection, device and session references are
 opaque, short-lived and never authorisation credentials. Redis fan-out reaches
 each destination instance; exact-origin receipt exclusion preserves delivery
 to the subject's other authorised devices without sticky sessions.
+
+`CONNECT.15` proves Redis flush, non-responsive partition, complete loss and
+rejoin. Durable readiness remains independent, PostgreSQL history and receipt
+cursors remain authoritative, and authorised catch-up repairs every missed
+live notification without acknowledged loss or durable duplication.
 
 The empty `docker-compose.watch.yml` is tracked by the accepted user baseline.
 Later phase commits must preserve it byte-for-byte unless the user explicitly

@@ -7,10 +7,21 @@ PROJECT_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd -P)"
 ENV_FILE="${CONNECT_LAB_ENV_FILE:-${PROJECT_DIR}/.env}"
 COMPOSE_FILE="${PROJECT_DIR}/compose.yaml"
 TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/nexo-connect-12-redis-loss.XXXXXX")"
+REDIS_ID=""
+REDIS_PAUSED=0
+REDIS_STOPPED=0
 
 cleanup() {
     local status=$?
     trap - EXIT
+    if [[ "$REDIS_PAUSED" -eq 1 && -n "$REDIS_ID" ]]; then
+        docker unpause "$REDIS_ID" >/dev/null 2>&1 || status=1
+        REDIS_PAUSED=0
+    fi
+    if [[ "$REDIS_STOPPED" -eq 1 ]]; then
+        compose start redis >/dev/null 2>&1 || status=1
+        REDIS_STOPPED=0
+    fi
     /bin/rm -f "$TEMP_DIR/body" "$TEMP_DIR/headers"
     rmdir "$TEMP_DIR" 2>/dev/null || status=1
     exit "$status"
@@ -51,6 +62,32 @@ http_probe() {
         "http://127.0.0.1:${HTTP_HOST_PORT}${path}" 2>/dev/null || true
 }
 
+wait_for_degraded() {
+    local durable_code durable_body redis_header
+    for _attempt in $(seq 1 30); do
+        durable_code="$(http_probe /health/ready)"
+        durable_body="$(tr -d '\r\n' <"$TEMP_DIR/body")"
+        redis_header="$(awk 'BEGIN { IGNORECASE=1 } /^X-Nexo-Connect-Redis-Readiness:/ { gsub(/\r/, ""); print $2 }' "$TEMP_DIR/headers")"
+        if [[ "$durable_code" == 200 && "$durable_body" == READY && "$redis_header" == DEGRADED ]]; then
+            return 0
+        fi
+        sleep 1
+    done
+    return 1
+}
+
+wait_for_recovered() {
+    local redis_code
+    for _attempt in $(seq 1 45); do
+        redis_code="$(http_probe /health/ready/ephemeral-redis)"
+        if [[ "$redis_code" == 200 && "$(tr -d '\r\n' <"$TEMP_DIR/body")" == REDIS_READY ]]; then
+            return 0
+        fi
+        sleep 1
+    done
+    return 1
+}
+
 [[ -f "$ENV_FILE" && -f "$COMPOSE_FILE" ]] || fail LOCAL_RUNTIME_CONTRACT_MISSING
 
 HTTP_HOST_PORT="$(read_env_value CONNECT_LAB_HTTP_HOST_PORT)"
@@ -63,6 +100,7 @@ DATABASE_NAME="$(read_env_value CONNECT_LAB_DATABASE_NAME)"
 app_id="$(compose ps -q app)"
 redis_id="$(compose ps -q redis)"
 [[ -n "$app_id" && -n "$redis_id" ]] || fail EXPECTED_RUNTIME_NOT_STARTED
+REDIS_ID="$redis_id"
 
 if [[ "$(compose exec -T redis sh -ec 'REDISCLI_AUTH="$CONNECT_LAB_REDIS_APP_PASSWORD" redis-cli --no-auth-warning --user "$CONNECT_LAB_REDIS_APP_USER" ping' | tr -d '[:space:]')" != PONG ]]; then
     fail DEDICATED_REDIS_AUTH_FAILED
@@ -82,20 +120,31 @@ ready_code="$(http_probe /health/ready/ephemeral-redis)"
 before_hash="$(durable_state_hash)"
 control_hash="$(durable_state_hash)"
 [[ "$control_hash" == "$before_hash" ]] || fail POSTGRES_DURABLE_HASH_NOT_REPRODUCIBLE
-compose stop --timeout 15 redis >/dev/null
 
-degraded=0
-for _attempt in $(seq 1 30); do
-    durable_code="$(http_probe /health/ready)"
-    durable_body="$(tr -d '\r\n' <"$TEMP_DIR/body")"
-    redis_header="$(awk 'BEGIN { IGNORECASE=1 } /^X-Nexo-Connect-Redis-Readiness:/ { gsub(/\r/, ""); print $2 }' "$TEMP_DIR/headers")"
-    if [[ "$durable_code" == 200 && "$durable_body" == READY && "$redis_header" == DEGRADED ]]; then
-        degraded=1
-        break
-    fi
-    sleep 1
-done
-[[ "$degraded" == 1 ]] || fail DURABLE_READINESS_DID_NOT_SURVIVE_REDIS_LOSS
+flush_result="$(compose exec -T redis sh -ec 'REDISCLI_AUTH="$CONNECT_LAB_REDIS_PASSWORD" redis-cli --no-auth-warning FLUSHDB' | tr -d '[:space:]')"
+[[ "$flush_result" == OK ]] || fail REDIS_FLUSH_INJECTION_FAILED
+after_flush_hash="$(durable_state_hash)"
+[[ "$after_flush_hash" == "$before_hash" ]] || fail POSTGRES_DURABLE_STATE_CHANGED_AFTER_REDIS_FLUSH
+ready_code="$(http_probe /health/ready/ephemeral-redis)"
+[[ "$ready_code" == 200 && "$(tr -d '\r\n' <"$TEMP_DIR/body")" == REDIS_READY ]] ||
+    fail REDIS_READINESS_FAILED_AFTER_FLUSH
+
+docker pause "$redis_id" >/dev/null
+REDIS_PAUSED=1
+wait_for_degraded || fail DURABLE_READINESS_DID_NOT_SURVIVE_REDIS_PARTITION
+partition_redis_code="$(http_probe /health/ready/ephemeral-redis)"
+[[ "$partition_redis_code" == 503 && "$(tr -d '\r\n' <"$TEMP_DIR/body")" == REDIS_DEGRADED ]] ||
+    fail EXPLICIT_REDIS_PARTITION_DEGRADATION_NOT_REPORTED
+after_partition_hash="$(durable_state_hash)"
+[[ "$after_partition_hash" == "$before_hash" ]] || fail POSTGRES_DURABLE_STATE_CHANGED_DURING_REDIS_PARTITION
+docker unpause "$redis_id" >/dev/null
+REDIS_PAUSED=0
+wait_for_recovered || fail REDIS_PARTITION_REJOIN_DID_NOT_RECOVER
+
+compose stop --timeout 15 redis >/dev/null
+REDIS_STOPPED=1
+
+wait_for_degraded || fail DURABLE_READINESS_DID_NOT_SURVIVE_REDIS_LOSS
 
 redis_code="$(http_probe /health/ready/ephemeral-redis)"
 [[ "$redis_code" == 503 && "$(tr -d '\r\n' <"$TEMP_DIR/body")" == REDIS_DEGRADED ]] ||
@@ -105,16 +154,8 @@ after_loss_hash="$(durable_state_hash)"
 [[ "$after_loss_hash" == "$before_hash" ]] || fail POSTGRES_DURABLE_STATE_CHANGED_DURING_REDIS_LOSS
 
 compose start redis >/dev/null
-recovered=0
-for _attempt in $(seq 1 45); do
-    redis_code="$(http_probe /health/ready/ephemeral-redis)"
-    if [[ "$redis_code" == 200 && "$(tr -d '\r\n' <"$TEMP_DIR/body")" == REDIS_READY ]]; then
-        recovered=1
-        break
-    fi
-    sleep 1
-done
-[[ "$recovered" == 1 ]] || fail REDIS_RECONNECT_DID_NOT_RECOVER
+REDIS_STOPPED=0
+wait_for_recovered || fail REDIS_RECONNECT_DID_NOT_RECOVER
 
 after_recovery_hash="$(durable_state_hash)"
 [[ "$after_recovery_hash" == "$before_hash" ]] || fail POSTGRES_DURABLE_STATE_CHANGED_AFTER_REDIS_RECOVERY
@@ -123,11 +164,15 @@ after_recovery_hash="$(durable_state_hash)"
 printf 'REDIS_DEDICATED_RUNTIME_AUTH=PASS\n'
 printf 'REDIS_APP_ADMIN_COMMAND_DENIED=PASS\n'
 printf 'REDIS_PERSISTENCE_DISABLED=PASS\n'
+printf 'REDIS_FLUSH_INJECTION=PASS\n'
+printf 'REDIS_PARTITION_INJECTION=PASS\n'
+printf 'REDIS_STOP_INJECTION=PASS\n'
 printf 'REDIS_EXPLICIT_DEGRADATION=PASS\n'
 printf 'DURABLE_READINESS_DURING_REDIS_LOSS=PASS\n'
 printf 'POSTGRES_DURABLE_HASH_REPRODUCIBLE=PASS\n'
 printf 'POSTGRES_DURABLE_HASH_PRESERVED=PASS\n'
 printf 'REDIS_RECONNECT_RECOVERY=PASS\n'
+printf 'REDIS_REJOIN=PASS\n'
 printf 'APPLICATION_RESTARTS_DURING_REDIS_LOSS=0\n'
 printf 'REDIS_LOSS_DURABLE_IMPACT=0\n'
 printf 'REDIS_LOSS_DURABLE_ISOLATION=PASS\n'

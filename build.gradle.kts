@@ -95,6 +95,7 @@ tasks.register<Test>("semanticAcceptanceTest") {
         includeTestsMatching("*.MultiInstanceRealtimeFanoutTest")
         includeTestsMatching("*.RedisRealtimeFanoutConfigTest")
         includeTestsMatching("*.EphemeralRealtimeConnectionRegistryTest")
+        includeTestsMatching("*.RedisLossRecoveryContractTest")
     }
 }
 
@@ -121,6 +122,19 @@ tasks.register<Test>("multiDeviceRealtimeRoutingTest") {
         includeTestsMatching("*.MultiInstanceRealtimeFanoutTest")
         includeTestsMatching("*.RealtimeProtocolTest")
         includeTestsMatching("*.RealtimeRoutingProtocolTest")
+    }
+}
+
+tasks.register<Test>("redisLossRecoveryTest") {
+    description = "Proves durable message and receipt repair across Redis flush, loss, partition, and rejoin."
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    filter {
+        includeTestsMatching("*.RedisLossRecoveryContractTest")
+        includeTestsMatching("*.DurableConversationCatchUpTest")
+        includeTestsMatching("*.DurableReceiptCursorTest")
+        includeTestsMatching("*.RedisEphemeralRuntimeTest")
     }
 }
 
