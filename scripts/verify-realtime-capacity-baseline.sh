@@ -4,7 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 PROJECT_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd -P)"
-ENV_FILE="${PROJECT_DIR}/.env"
+ENV_FILE="${CONNECT_LAB_ENV_FILE:-${PROJECT_DIR}/.env}"
 COMPOSE_FILE="${PROJECT_DIR}/compose.yaml"
 REPORT_PATH="${PROJECT_DIR}/build/reports/realtime-capacity/connect-10-single-instance.properties"
 STATS_FILE="$(mktemp "${TMPDIR:-/tmp}/connect-10-stats.XXXXXX")"

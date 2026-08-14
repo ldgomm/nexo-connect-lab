@@ -11,5 +11,6 @@ BASELINE	CONNECT.USER.BASELINE	PASS	558d702bd5e7729721cde71d0e3080513798dcdd	.
 BASELINE	CONNECT.08	PASS	7e9e19a72571cfeb55bbd397e1a7adef6281f0ec	chore(connect): [CONNECT.08] align IntelliJ and CI formatting
 BASELINE	CONNECT.09	PASS	e13051b9d1f487e1978670bdaf608ead96d66486	test(connect): [CONNECT.09] harden semantic acceptance gates
 BASELINE	CONNECT.10	PASS	b75633a445e6c7dc6bd686a0471f4078c616a14c	test(connect): [CONNECT.10] establish realtime capacity baseline
-CURRENT	CONNECT.11	IMPLEMENTING	DISCOVER_BY_SUBJECT	docs(connect): [CONNECT.11] freeze multi-instance fanout architecture
-NEXT	CONNECT.12	LOCKED	-	feat(connect): [CONNECT.12] add isolated ephemeral Redis boundary
+BASELINE	CONNECT.11	PASS	60a65ddbaa7de04ade07c3332c4d54a7b221d74f	docs(connect): [CONNECT.11] freeze multi-instance fanout architecture
+CURRENT	CONNECT.12	IMPLEMENTING	DISCOVER_BY_SUBJECT	feat(connect): [CONNECT.12] add isolated ephemeral Redis boundary
+NEXT	CONNECT.13	LOCKED	-	feat(connect): [CONNECT.13] add multi-instance realtime fanout

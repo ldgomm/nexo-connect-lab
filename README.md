@@ -31,3 +31,25 @@ If the server starts successfully, you'll see the following output:
 2024-12-04 14:32:45.584 [main] INFO  Application - Application started in 0.303 seconds.
 2024-12-04 14:32:45.682 [main] INFO  Application - Responding at http://0.0.0.0:8080
 ```
+
+## Isolated local runtime
+
+Generate local-only credentials once, then start the private Compose stack:
+
+```bash
+make env
+make up
+```
+
+Durable service readiness and the optional Redis live-signal boundary are
+reported separately:
+
+```bash
+curl -i http://127.0.0.1:8282/health/ready
+curl -i http://127.0.0.1:8282/health/ready/ephemeral-redis
+```
+
+PostgreSQL is the durable authority. If Redis is unavailable, the first route
+remains `READY` while its Redis header changes to `DEGRADED`; the second route
+returns `REDIS_DEGRADED`. Redis is authenticated with a dedicated application
+ACL, has persistence disabled and cannot access namespaces outside Connect Lab.

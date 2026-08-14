@@ -5,11 +5,11 @@
 - Programme: `NEXO_CONNECT_LAB`
 - Repository: `connect-lab`
 - Branch: `main`
-- Accepted phase: `CONNECT.10`
-- Accepted HEAD: `b75633a445e6c7dc6bd686a0471f4078c616a14c`
+- Accepted phase: `CONNECT.11`
+- Accepted HEAD: `60a65ddbaa7de04ade07c3332c4d54a7b221d74f`
 - Immutable user baseline: `558d702bd5e7729721cde71d0e3080513798dcdd`
-- Active phase: `CONNECT.11`
-- Next phase after acceptance: `CONNECT.12`
+- Active phase: `CONNECT.12`
+- Next phase after acceptance: `CONNECT.13`
 
 `CONNECT.07` is the accepted governance commit `e330359...`; its historical
 subject used the temporary label `[CONNECT.01]`. The hash is preserved and the
@@ -63,6 +63,11 @@ The `CONNECT.11` distributed topology is frozen by
 and its machine-verifiable properties contract. PostgreSQL remains durable
 truth; Redis is an ephemeral best-effort notification path, and authorised
 catch-up repairs live fan-out loss.
+
+`CONNECT.12` implements the isolated Redis application identity, typed client
+configuration, bounded timeouts/request queue, reconnect circuit and explicit
+ephemeral readiness. Redis remains optional for durable readiness and has local
+persistence disabled. Publish/subscribe wiring remains locked to `CONNECT.13`.
 
 The empty `docker-compose.watch.yml` is tracked by the accepted user baseline.
 Later phase commits must preserve it byte-for-byte unless the user explicitly

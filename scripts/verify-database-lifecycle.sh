@@ -4,7 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 PROJECT_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd -P)"
-ENV_FILE="${PROJECT_DIR}/.env"
+ENV_FILE="${CONNECT_LAB_ENV_FILE:-${PROJECT_DIR}/.env}"
 COMPOSE_FILE="${PROJECT_DIR}/compose.yaml"
 TEMP_BODY="$(mktemp "${TMPDIR:-/tmp}/connect-ready.XXXXXX")"
 

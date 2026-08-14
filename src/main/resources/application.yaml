@@ -5,6 +5,7 @@ ktor:
     modules:
       - com.premierdarkcoffee.nexo.connect.lab.infrastructure.config.ConnectLabConfigKt.configureTypedConfiguration
       - com.premierdarkcoffee.nexo.connect.lab.infrastructure.persistence.postgres.PostgresDatabaseLifecycleKt.configurePostgresDatabaseLifecycle
+      - com.premierdarkcoffee.nexo.connect.lab.infrastructure.redis.RedisEphemeralLifecycleKt.configureRedisEphemeralLifecycle
       - com.premierdarkcoffee.nexo.connect.lab.backend.realtime.RealtimeTransportKt.configureAuthenticatedRealtimeTransport
       - com.premierdarkcoffee.nexo.connect.lab.backend.routes.RoutingKt.configureRouting
 

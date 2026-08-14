@@ -160,9 +160,20 @@ contract_equals "$OWNERSHIP_FILE" connect.redis.durable_truth false ||
 contract_equals "$OWNERSHIP_FILE" connect.nexo_db_direct_access 0 ||
     fail "OWNERSHIP_NEXO_DB_BOUNDARY_MISMATCH"
 
-if grep -REn "(Jedis|Lettuce|Redisson|RedisClient|${REDIS_URI_PATTERN})" build.gradle.kts src/main/kotlin; then
-    fail "REDIS_IMPLEMENTATION_PREMATURE_BEFORE_CONNECT_12"
+if grep -REn "(Jedis|Lettuce|Redisson|RedisClient|RedisPubSub|${REDIS_URI_PATTERN})" \
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain \
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application \
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/backend; then
+    fail "REDIS_IMPLEMENTATION_ESCAPED_INFRASTRUCTURE_BOUNDARY"
 fi
+grep -Fq 'implementation(libs.lettuce.core)' build.gradle.kts ||
+    fail "CONNECT_12_REDIS_CLIENT_DEPENDENCY_MISSING"
+[[ -f src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisEphemeralConfig.kt ]] ||
+    fail "CONNECT_12_REDIS_CONFIGURATION_MISSING"
+[[ -f src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisEphemeralCircuit.kt ]] ||
+    fail "CONNECT_12_REDIS_CIRCUIT_MISSING"
+[[ -f src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisEphemeralLifecycle.kt ]] ||
+    fail "CONNECT_12_REDIS_LIFECYCLE_MISSING"
 
 awk '
     $0 == "durable.truth=POSTGRESQL" { print "durable.truth=REDIS"; next }
@@ -200,5 +211,5 @@ printf 'POSTGRES_CATCH_UP_REPAIR=PASS\n'
 printf 'REDIS_LOSS_DURABLE_IMPACT=0\n'
 printf 'EXACTLY_ONCE_CLAIM=FALSE\n'
 printf 'ARCHITECTURE_MUTATION_REJECTED=PASS\n'
-printf 'REDIS_IMPLEMENTATION_DEFERRED_TO_CONNECT_12=PASS\n'
+printf 'REDIS_IMPLEMENTATION_ISOLATED_IN_CONNECT_12=PASS\n'
 printf 'MULTI_INSTANCE_FANOUT_ARCHITECTURE=PASS\n'

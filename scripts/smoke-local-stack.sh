@@ -4,7 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 PROJECT_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd -P)"
-ENV_FILE="${PROJECT_DIR}/.env"
+ENV_FILE="${CONNECT_LAB_ENV_FILE:-${PROJECT_DIR}/.env}"
 COMPOSE_FILE="${PROJECT_DIR}/compose.yaml"
 
 if [[ ! -f "$ENV_FILE" || ! -f "$COMPOSE_FILE" ]]; then
@@ -62,12 +62,28 @@ if [[ "$(compose exec -T postgres psql -U "$POSTGRES_USER" -d "$DATABASE_NAME" -
 fi
 printf 'POSTGRESQL_SMOKE=PASS\n'
 
-if [[ "$(compose exec -T redis sh -ec 'REDISCLI_AUTH="$CONNECT_LAB_REDIS_PASSWORD" redis-cli --no-auth-warning ping' | tr -d '[:space:]')" != "PONG" ]]; then
+if [[ "$(compose exec -T redis sh -ec 'REDISCLI_AUTH="$CONNECT_LAB_REDIS_APP_PASSWORD" redis-cli --no-auth-warning --user "$CONNECT_LAB_REDIS_APP_USER" ping' | tr -d '[:space:]')" != "PONG" ]]; then
     printf 'REDIS_SMOKE=FAIL\n' >&2
     printf 'ERROR=REDIS_SMOKE_FAILED\n' >&2
     exit 6
 fi
 printf 'REDIS_SMOKE=PASS\n'
+
+REDIS_BOUNDARY_READY=""
+for _attempt in $(seq 1 30); do
+    REDIS_BOUNDARY_READY="$(curl --fail --silent --show-error --max-time 2 "http://127.0.0.1:${HTTP_HOST_PORT}/health/ready/ephemeral-redis" 2>&1 || true)"
+    REDIS_BOUNDARY_READY="$(printf '%s' "$REDIS_BOUNDARY_READY" | tr -d '\r\n')"
+    if [[ "$REDIS_BOUNDARY_READY" == "REDIS_READY" ]]; then
+        break
+    fi
+    sleep 1
+done
+if [[ "$REDIS_BOUNDARY_READY" != "REDIS_READY" ]]; then
+    printf 'REDIS_BOUNDARY_READINESS=FAIL\n' >&2
+    printf 'ERROR=REDIS_BOUNDARY_READINESS_FAILED\n' >&2
+    exit 6
+fi
+printf 'REDIS_BOUNDARY_READINESS=PASS\n'
 
 if ! compose --profile setup run --rm --no-deps minio-init ready local >/dev/null; then
     printf 'MINIO_SMOKE=FAIL\n' >&2

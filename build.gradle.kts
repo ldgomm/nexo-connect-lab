@@ -43,6 +43,7 @@ dependencies {
     implementation(ktorLibs.server.websockets)
     implementation(ktorLibs.serialization.kotlinx.json)
     implementation(libs.hikari)
+    implementation(libs.lettuce.core)
     implementation(libs.logback.classic)
     runtimeOnly(libs.flyway.database.postgresql)
     runtimeOnly(libs.postgresql.jdbc)
@@ -86,6 +87,21 @@ tasks.register<Test>("semanticAcceptanceTest") {
         includeTestsMatching("*.AuthenticatedRealtimeRuntimeTest")
         includeTestsMatching("*.AuthenticatedRealtimeCatchUpRuntimeTest")
         includeTestsMatching("*.AuthenticatedRealtimeReceiptRuntimeTest")
+        includeTestsMatching("*.ReadinessRoutesTest")
+        includeTestsMatching("*.RedisEphemeralConfigTest")
+        includeTestsMatching("*.RedisEphemeralRuntimeTest")
+    }
+}
+
+tasks.register<Test>("redisEphemeralBoundaryTest") {
+    description = "Verifies the isolated, degradable Redis client lifecycle."
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    filter {
+        includeTestsMatching("*.ReadinessRoutesTest")
+        includeTestsMatching("*.RedisEphemeralConfigTest")
+        includeTestsMatching("*.RedisEphemeralRuntimeTest")
     }
 }
 

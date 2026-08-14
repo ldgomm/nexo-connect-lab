@@ -4,12 +4,14 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 PROJECT_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd -P)"
-ENV_FILE="${PROJECT_DIR}/.env"
+LOCAL_ENV_FILE="${PROJECT_DIR}/.env"
+ENV_FILE=""
 COMPOSE_FILE="${PROJECT_DIR}/compose.yaml"
 COMPOSE_PROJECT="nexo-connect-lab"
 
 ENV_CREATED=0
 ENV_BEFORE_SHA=""
+LOCAL_ENV_PRESENT=0
 STACK_MAY_EXIST=0
 CLEANUP_RESULT="NOT_REQUIRED"
 CONTAINERS_LEFT="NOT_CHECKED"
@@ -72,13 +74,19 @@ finish() {
         fi
     fi
 
-    if [[ "$ENV_CREATED" -eq 1 ]]; then
+    if [[ "$ENV_CREATED" -eq 1 && -n "$ENV_FILE" ]]; then
         /bin/rm -f "$ENV_FILE"
-    elif [[ -n "$ENV_BEFORE_SHA" && -f "$ENV_FILE" ]]; then
-        if [[ "$(shasum -a 256 "$ENV_FILE" | awk '{print $1}')" != "$ENV_BEFORE_SHA" ]]; then
+    fi
+
+    if [[ "$LOCAL_ENV_PRESENT" -eq 1 ]]; then
+        if [[ ! -f "$LOCAL_ENV_FILE" || -L "$LOCAL_ENV_FILE" ]] ||
+            [[ "$(shasum -a 256 "$LOCAL_ENV_FILE" | awk '{print $1}')" != "$ENV_BEFORE_SHA" ]]; then
             printf 'LOCAL_ENV_PRESERVATION=FAIL\n' >&2
             status=1
         fi
+    elif [[ -e "$LOCAL_ENV_FILE" || -L "$LOCAL_ENV_FILE" ]]; then
+        printf 'LOCAL_ENV_PRESERVATION=FAIL\n' >&2
+        status=1
     fi
 
     printf 'STACK_CLEANUP=%s\n' "$CLEANUP_RESULT"
@@ -110,8 +118,11 @@ required_files=(
     build.gradle.kts
     compose.yaml
     docker/postgres/init/001-create-connect-app-role.sh
+    docker/redis/start-ephemeral-redis.sh
     docs/architecture/ADR-001_CONNECT_MULTI_INSTANCE_EPHEMERAL_REDIS_FANOUT.md
+    docs/architecture/CONNECT_12_EPHEMERAL_REDIS_CLIENT_BOUNDARY.md
     docs/architecture/connect-multi-instance-fanout-contract.properties
+    docs/architecture/connect-redis-ephemeral-boundary.properties
     docs/governance/CONNECT_PHASE_GOVERNANCE.md
     docs/governance/INTELLIJ_FORMATTING.md
     docs/governance/SEMANTIC_ACCEPTANCE_GATES.md
@@ -139,6 +150,8 @@ required_files=(
     scripts/verify-phase-governance.sh
     scripts/verify-formatting-convergence.sh
     scripts/verify-multi-instance-fanout-architecture.sh
+    scripts/verify-redis-ephemeral-boundary.sh
+    scripts/verify-redis-loss-durable-isolation.sh
     settings.gradle.kts
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/persistence/ConversationRepository.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/persistence/DurableMessageHistoryRepository.kt
@@ -156,6 +169,9 @@ required_files=(
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/DurableMessageCreatedEvent.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/DurableReceiptCursor.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresDurableReceiptCursorRepository.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisEphemeralConfig.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisEphemeralCircuit.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisEphemeralLifecycle.kt
     src/main/resources/db/migration/V5__durable_receipt_cursors.sql
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/conversation/DurableConversationListing.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/conversation/CreateBusinessClientConversationCommand.kt
@@ -193,6 +209,8 @@ required_files=(
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/acceptance/SemanticAcceptanceGateTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/capacity/RealtimeCapacityStatisticsTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/capacity/RealtimeSingleInstanceCapacityRuntimeTest.kt
+    src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisEphemeralConfigTest.kt
+    src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisEphemeralRuntimeTest.kt
 )
 
 for required_file in "${required_files[@]}"; do
@@ -257,9 +275,11 @@ if [[ "$(grep -c '^      - \"127\.0\.0\.1:' compose.yaml)" != "5" ]] || \
 fi
 
 app_block="$(awk '/^  app:$/,/^  postgres:$/' compose.yaml)"
-if grep -Eq 'CONNECT_LAB_POSTGRES_(USER|PASSWORD):|REDIS_PASSWORD|MINIO_ROOT_(USER|PASSWORD)' <<<"$app_block" || \
+if grep -Eq 'CONNECT_LAB_POSTGRES_(USER|PASSWORD):|CONNECT_LAB_REDIS_PASSWORD:|MINIO_ROOT_(USER|PASSWORD)' <<<"$app_block" || \
     ! grep -Fq 'CONNECT_LAB_POSTGRES_APP_USER:' <<<"$app_block" || \
-    ! grep -Fq 'CONNECT_LAB_POSTGRES_APP_PASSWORD:' <<<"$app_block"; then
+    ! grep -Fq 'CONNECT_LAB_POSTGRES_APP_PASSWORD:' <<<"$app_block" || \
+    ! grep -Fq 'CONNECT_LAB_REDIS_APP_USER:' <<<"$app_block" || \
+    ! grep -Fq 'CONNECT_LAB_REDIS_APP_PASSWORD:' <<<"$app_block"; then
     printf 'CI_STATIC_CONTRACT=FAIL\n' >&2
     printf 'ERROR=APPLICATION_RECEIVES_INFRASTRUCTURE_ROOT_SECRET\n' >&2
     exit 18
@@ -294,7 +314,10 @@ bash -n scripts/verify-postgres-schema.sh
 bash -n scripts/verify-phase-governance.sh
 bash -n scripts/verify-formatting-convergence.sh
 bash -n scripts/verify-multi-instance-fanout-architecture.sh
+bash -n scripts/verify-redis-ephemeral-boundary.sh
+bash -n scripts/verify-redis-loss-durable-isolation.sh
 bash -n docker/postgres/init/001-create-connect-app-role.sh
+bash -n docker/redis/start-ephemeral-redis.sh
 bash -n scripts/ci-verify.sh
 git diff --check
 
@@ -309,6 +332,9 @@ printf 'SEMANTIC_ACCEPTANCE_CONTRACT=PASS\n'
 
 ./scripts/verify-multi-instance-fanout-architecture.sh
 printf 'MULTI_INSTANCE_FANOUT_ARCHITECTURE_CONTRACT=PASS\n'
+
+./scripts/verify-redis-ephemeral-boundary.sh
+printf 'REDIS_EPHEMERAL_BOUNDARY_CONTRACT=PASS\n'
 
 CONNECT_C5_MIGRATION_DIRECTORY="src/main/resources/db/migration"
 CONNECT_C5_MIGRATION_FILE_COUNT="$(
@@ -571,16 +597,23 @@ fi
 printf 'CI_SECONDARY_SOURCE_SCAN=PASS\n'
 printf 'CI_STATIC_CONTRACT=PASS\n'
 
-if [[ -e "$ENV_FILE" || -L "$ENV_FILE" ]]; then
-    if [[ ! -f "$ENV_FILE" || -L "$ENV_FILE" ]]; then
+if [[ -e "$LOCAL_ENV_FILE" || -L "$LOCAL_ENV_FILE" ]]; then
+    LOCAL_ENV_PRESENT=1
+    if [[ ! -f "$LOCAL_ENV_FILE" || -L "$LOCAL_ENV_FILE" ]]; then
         printf 'ERROR=LOCAL_ENV_MUST_BE_A_REGULAR_FILE\n' >&2
         exit 20
     fi
-    ENV_BEFORE_SHA="$(shasum -a 256 "$ENV_FILE" | awk '{print $1}')"
-else
-    ENV_CREATED=1
-    make -s env
+    ENV_BEFORE_SHA="$(shasum -a 256 "$LOCAL_ENV_FILE" | awk '{print $1}')"
 fi
+
+ENV_FILE="${TMPDIR:-/tmp}/nexo_connect_lab_ci_env.$$.env"
+if [[ -e "$ENV_FILE" || -L "$ENV_FILE" ]]; then
+    printf 'ERROR=CI_RUNTIME_ENV_PATH_COLLISION\n' >&2
+    exit 21
+fi
+ENV_CREATED=1
+./scripts/generate-local-env.sh "$ENV_FILE" >/dev/null
+export CONNECT_LAB_ENV_FILE="$ENV_FILE"
 
 if [[ ! -f "$ENV_FILE" || -L "$ENV_FILE" ]]; then
     printf 'ERROR=LOCAL_ENV_BOOTSTRAP_FAILED\n' >&2
@@ -609,7 +642,15 @@ for exact_env in \
     'CONNECT_LAB_E2EE_CLAIM=false' \
     'CONNECT_LAB_DATABASE_LIFECYCLE_ENABLED=true' \
     'CONNECT_LAB_POSTGRES_APP_USER=nexo_connect_lab_app' \
-    'CONNECT_LAB_POSTGRES_APP_MAX_POOL_SIZE=12'; do
+    'CONNECT_LAB_POSTGRES_APP_MAX_POOL_SIZE=12' \
+    'CONNECT_LAB_REDIS_APP_USER=nexo_connect_lab_app' \
+    'CONNECT_LAB_REDIS_CHANNEL_NAMESPACE=nexo.connect.realtime.v1' \
+    'CONNECT_LAB_REDIS_DATABASE=0' \
+    'CONNECT_LAB_REDIS_CONNECT_TIMEOUT_MILLIS=2000' \
+    'CONNECT_LAB_REDIS_COMMAND_TIMEOUT_MILLIS=1000' \
+    'CONNECT_LAB_REDIS_RECONNECT_MIN_DELAY_MILLIS=100' \
+    'CONNECT_LAB_REDIS_RECONNECT_MAX_DELAY_MILLIS=2000' \
+    'CONNECT_LAB_REDIS_REQUEST_QUEUE_SIZE=256'; do
     if ! grep -Fqx "$exact_env" "$ENV_FILE"; then
         printf 'ERROR=LOCAL_ENV_ISOLATION_CONTRACT_MISMATCH\n' >&2
         exit 23
@@ -624,11 +665,20 @@ client_token="$(awk -F= '$1 == "CONNECT_LAB_SYNTHETIC_CLIENT_TOKEN" { print subs
     printf 'ERROR=LOCAL_ENV_SYNTHETIC_IDENTITY_CONTRACT_MISMATCH\n' >&2
     exit 23
 }
-if [[ ${#business_token} -lt 32 || ${#client_token} -lt 32 || "$business_token" == "$client_token" ]]; then
+redis_root_secret="$(awk -F= '$1 == "CONNECT_LAB_REDIS_PASSWORD" { print substr($0, index($0, "=") + 1); count++ } END { if (count != 1) exit 1 }' "$ENV_FILE")" || {
+    printf 'ERROR=LOCAL_ENV_REDIS_IDENTITY_CONTRACT_MISMATCH\n' >&2
+    exit 23
+}
+redis_app_secret="$(awk -F= '$1 == "CONNECT_LAB_REDIS_APP_PASSWORD" { print substr($0, index($0, "=") + 1); count++ } END { if (count != 1) exit 1 }' "$ENV_FILE")" || {
+    printf 'ERROR=LOCAL_ENV_REDIS_IDENTITY_CONTRACT_MISMATCH\n' >&2
+    exit 23
+}
+if [[ ${#business_token} -lt 32 || ${#client_token} -lt 32 || "$business_token" == "$client_token" ]] ||
+    [[ ${#redis_root_secret} -lt 32 || ${#redis_app_secret} -lt 32 || "$redis_root_secret" == "$redis_app_secret" ]]; then
     printf 'ERROR=LOCAL_ENV_SYNTHETIC_IDENTITY_CONTRACT_MISMATCH\n' >&2
     exit 23
 fi
-unset business_token client_token
+unset business_token client_token redis_root_secret redis_app_secret
 
 if ! command -v docker >/dev/null 2>&1 || ! docker version >/dev/null 2>&1 || ! docker compose version >/dev/null 2>&1; then
     printf 'ERROR=DOCKER_ENGINE_OR_COMPOSE_UNAVAILABLE\n' >&2
@@ -714,6 +764,9 @@ printf 'POSTGRES_REPOSITORY_CONTRACT=PASS\n'
 
 ./scripts/verify-durable-restart-recovery.sh
 printf 'DURABLE_RESTART_RECOVERY_CONTRACT=PASS\n'
+
+./scripts/verify-redis-loss-durable-isolation.sh
+printf 'REDIS_LOSS_DURABLE_ISOLATION_CONTRACT=PASS\n'
 
 ./scripts/verify-database-lifecycle.sh
 printf 'DATABASE_LIFECYCLE_CONTRACT=PASS\n'

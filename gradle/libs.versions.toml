@@ -4,6 +4,7 @@ hikari = "7.1.0"
 kotlin = "2.4.0"
 ktlint = "1.8.0"
 logback = "1.5.35"
+lettuce = "7.3.0.RELEASE"
 postgresql-jdbc = "42.7.13"
 spotless = "8.9.0"
 
@@ -12,6 +13,7 @@ flyway-core = { module = "org.flywaydb:flyway-core", version.ref = "flyway" }
 flyway-database-postgresql = { module = "org.flywaydb:flyway-database-postgresql", version.ref = "flyway" }
 hikari = { module = "com.zaxxer:HikariCP", version.ref = "hikari" }
 logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
+lettuce-core = { module = "io.lettuce:lettuce-core", version.ref = "lettuce" }
 postgresql-jdbc = { module = "org.postgresql:postgresql", version.ref = "postgresql-jdbc" }
 
 [plugins]
