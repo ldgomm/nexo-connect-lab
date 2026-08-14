@@ -105,6 +105,7 @@ tasks.register<Test>("semanticAcceptanceTest") {
         includeTestsMatching("*.AuthorizedTypingSignalFanoutTest")
         includeTestsMatching("*.MultiInstanceTypingSignalFanoutTest")
         includeTestsMatching("*.AuthenticatedRealtimeTypingSignalTest")
+        includeTestsMatching("*.PrivacyAwarePresenceAggregatorTest")
     }
 }
 
@@ -183,6 +184,18 @@ tasks.register<Test>("typingSignalTest") {
         includeTestsMatching("*.AuthorizedTypingSignalFanoutTest")
         includeTestsMatching("*.MultiInstanceTypingSignalFanoutTest")
         includeTestsMatching("*.AuthenticatedRealtimeTypingSignalTest")
+    }
+}
+
+tasks.register<Test>("presenceAggregationTest") {
+    description = "Verifies privacy-aware multi-device presence aggregation and topology-free projection."
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    filter {
+        includeTestsMatching("*.PrivacyAwarePresenceAggregatorTest")
+        includeTestsMatching("*.RedisPresenceLeaseStoreTest")
+        includeTestsMatching("*.RedisPresenceAggregationIntegrationTest")
     }
 }
 

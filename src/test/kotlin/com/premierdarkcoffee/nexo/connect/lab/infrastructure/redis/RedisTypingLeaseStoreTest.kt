@@ -83,6 +83,12 @@ class RedisTypingLeaseStoreTest {
 
         override fun compareOwnerAndDelete(key: String, owner: String) = state.delete(key, owner)
 
+        override fun setMarkerWithTtl(key: String, ttlMillis: Long) = state.set(key, "1", ttlMillis)
+
+        override fun hasAnyMatchingKey(pattern: String) = state.hasAnyMatchingKey(pattern)
+
+        override fun exists(key: String) = state.exists(key)
+
         override fun remainingTtlMillis(key: String) = state.pttl(key)
 
         override fun close() = Unit
@@ -117,6 +123,13 @@ class RedisTypingLeaseStoreTest {
         }
 
         fun pttl(key: String): Long = current(key)?.let { it.expiresAt - now } ?: -2
+
+        fun hasAnyMatchingKey(pattern: String): Boolean {
+            val prefix = pattern.removeSuffix("*")
+            return entries.keys.toList().any { key -> key.startsWith(prefix) && current(key) != null }
+        }
+
+        fun exists(key: String): Boolean = current(key) != null
 
         private fun current(key: String): Entry? {
             val value = entries[key] ?: return null

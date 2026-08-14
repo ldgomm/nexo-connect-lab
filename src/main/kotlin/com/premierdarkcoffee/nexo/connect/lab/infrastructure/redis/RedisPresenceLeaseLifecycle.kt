@@ -1,6 +1,7 @@
 package com.premierdarkcoffee.nexo.connect.lab.infrastructure.redis
 
 import com.premierdarkcoffee.nexo.connect.lab.application.presence.EphemeralPresenceLeaseStore
+import com.premierdarkcoffee.nexo.connect.lab.application.presence.EphemeralPresenceSnapshotReader
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStopped
 import io.ktor.util.AttributeKey
@@ -10,6 +11,9 @@ private val RedisPresenceLeaseStoreKey =
 
 fun Application.redisPresenceLeaseStoreOrNull(): EphemeralPresenceLeaseStore? =
     attributes.getOrNull(RedisPresenceLeaseStoreKey)
+
+fun Application.redisPresenceSnapshotReaderOrNull(): EphemeralPresenceSnapshotReader? =
+    redisPresenceLeaseStoreOrNull() as? EphemeralPresenceSnapshotReader
 
 internal fun Application.installRedisPresenceLeaseStore(store: EphemeralPresenceLeaseStore) {
     check(redisPresenceLeaseStoreOrNull() == null) { "Redis presence lease store is already installed" }

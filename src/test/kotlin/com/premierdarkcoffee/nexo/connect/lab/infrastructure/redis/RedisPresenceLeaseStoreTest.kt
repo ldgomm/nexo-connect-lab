@@ -1,5 +1,6 @@
 package com.premierdarkcoffee.nexo.connect.lab.infrastructure.redis
 
+import com.premierdarkcoffee.nexo.connect.lab.application.presence.PresenceActivitySnapshot
 import com.premierdarkcoffee.nexo.connect.lab.application.presence.PresenceLeaseAcquireResult
 import com.premierdarkcoffee.nexo.connect.lab.application.presence.PresenceLeaseMutationResult
 import com.premierdarkcoffee.nexo.connect.lab.application.presence.PresenceLeaseRefFactory
@@ -80,6 +81,30 @@ class RedisPresenceLeaseStoreTest {
         store.close()
     }
 
+    @Test
+    fun `aggregates multiple device leases without revealing device topology`() = runBlocking {
+        val state = FakeRedisState()
+        val store = store("instance-a", "lease_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", state)
+        val firstTarget = target()
+        val secondTarget = target().copy(deviceRef = "device_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+        val first = (store.acquire(firstTarget) as PresenceLeaseAcquireResult.Acquired).handle
+        val second = (store.acquire(secondTarget) as PresenceLeaseAcquireResult.Acquired).handle
+
+        assertEquals(PresenceActivitySnapshot.ONLINE, store.read(firstTarget.subjectTarget()))
+        assertEquals(PresenceLeaseMutationResult.APPLIED, store.release(first))
+        assertEquals(PresenceActivitySnapshot.ONLINE, store.read(firstTarget.subjectTarget()))
+        assertEquals(PresenceLeaseMutationResult.APPLIED, store.release(second))
+        assertEquals(PresenceActivitySnapshot.RECENTLY_ONLINE, store.read(firstTarget.subjectTarget()))
+
+        state.advance(1_001)
+
+        assertEquals(PresenceActivitySnapshot.OFFLINE, store.read(firstTarget.subjectTarget()))
+        assertFalse("client-1" in store.redisDeviceLeasePattern(firstTarget.subjectTarget()))
+        assertFalse("device_" in store.redisDeviceLeasePattern(firstTarget.subjectTarget()))
+        assertFalse("client-1" in store.redisRecentMarkerKey(firstTarget.subjectTarget()))
+        store.close()
+    }
+
     private fun store(instanceRef: String, leaseRef: String, state: FakeRedisState): RedisPresenceLeaseStore =
         RedisPresenceLeaseStore(
             redisConfig = redisConfig(),
@@ -88,6 +113,7 @@ class RedisPresenceLeaseStoreTest {
                 instanceRef = instanceRef,
                 leaseTtl = Duration.ofSeconds(1),
                 refreshInterval = Duration.ofMillis(300),
+                recentlyOnlineWindow = Duration.ofSeconds(1),
             ),
             provider = FakeProvider(state),
             leaseRefFactory = PresenceLeaseRefFactory { leaseRef },
@@ -129,6 +155,12 @@ class RedisPresenceLeaseStoreTest {
 
         override fun compareOwnerAndDelete(key: String, owner: String): Boolean = state.delete(key, owner)
 
+        override fun setMarkerWithTtl(key: String, ttlMillis: Long): Boolean = state.set(key, "1", ttlMillis)
+
+        override fun hasAnyMatchingKey(pattern: String): Boolean = state.hasAnyMatchingKey(pattern)
+
+        override fun exists(key: String): Boolean = state.exists(key)
+
         override fun remainingTtlMillis(key: String): Long = state.pttl(key)
 
         override fun close() = Unit
@@ -167,6 +199,13 @@ class RedisPresenceLeaseStoreTest {
             val current = current(key) ?: return -2
             return current.expiresAtMillis - nowMillis
         }
+
+        fun hasAnyMatchingKey(pattern: String): Boolean {
+            val prefix = pattern.removeSuffix("*")
+            return entries.keys.toList().any { key -> key.startsWith(prefix) && current(key) != null }
+        }
+
+        fun exists(key: String): Boolean = current(key) != null
 
         private fun current(key: String): Entry? {
             val entry = entries[key] ?: return null

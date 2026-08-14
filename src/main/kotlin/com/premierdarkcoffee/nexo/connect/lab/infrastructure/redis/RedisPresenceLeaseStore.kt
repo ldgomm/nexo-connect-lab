@@ -1,15 +1,20 @@
 package com.premierdarkcoffee.nexo.connect.lab.infrastructure.redis
 
 import com.premierdarkcoffee.nexo.connect.lab.application.presence.EphemeralPresenceLeaseStore
+import com.premierdarkcoffee.nexo.connect.lab.application.presence.EphemeralPresenceSnapshotReader
+import com.premierdarkcoffee.nexo.connect.lab.application.presence.PresenceActivitySnapshot
 import com.premierdarkcoffee.nexo.connect.lab.application.presence.PresenceLeaseAcquireResult
 import com.premierdarkcoffee.nexo.connect.lab.application.presence.PresenceLeaseHandle
 import com.premierdarkcoffee.nexo.connect.lab.application.presence.PresenceLeaseMutationResult
 import com.premierdarkcoffee.nexo.connect.lab.application.presence.PresenceLeaseRefFactory
 import com.premierdarkcoffee.nexo.connect.lab.application.presence.PresenceLeaseTarget
+import com.premierdarkcoffee.nexo.connect.lab.application.presence.PresenceSubjectTarget
 import com.premierdarkcoffee.nexo.connect.lab.application.presence.SecurePresenceLeaseRefFactory
 import io.lettuce.core.ClientOptions
 import io.lettuce.core.RedisClient
 import io.lettuce.core.RedisURI
+import io.lettuce.core.ScanArgs
+import io.lettuce.core.ScanCursor
 import io.lettuce.core.ScriptOutputType
 import io.lettuce.core.SocketOptions
 import io.lettuce.core.api.StatefulRedisConnection
@@ -24,6 +29,7 @@ data class RedisPresenceLeaseConfig(
     val instanceRef: String,
     val leaseTtl: Duration = DEFAULT_LEASE_TTL,
     val refreshInterval: Duration = DEFAULT_REFRESH_INTERVAL,
+    val recentlyOnlineWindow: Duration = DEFAULT_RECENTLY_ONLINE_WINDOW,
 ) {
     init {
         require(
@@ -36,13 +42,20 @@ data class RedisPresenceLeaseConfig(
         require(!refreshInterval.isZero && !refreshInterval.isNegative && refreshInterval.multipliedBy(2) < leaseTtl) {
             "Presence refresh interval must be positive and less than half the lease TTL"
         }
+        require(
+            recentlyOnlineWindow >= MINIMUM_RECENTLY_ONLINE_WINDOW &&
+                recentlyOnlineWindow <= MAXIMUM_RECENTLY_ONLINE_WINDOW,
+        ) { "Recently-online window must be between 500 milliseconds and 24 hours" }
     }
 
     companion object {
         val DEFAULT_LEASE_TTL: Duration = Duration.ofSeconds(45)
         val DEFAULT_REFRESH_INTERVAL: Duration = Duration.ofSeconds(15)
+        val DEFAULT_RECENTLY_ONLINE_WINDOW: Duration = Duration.ofMinutes(15)
         private val MINIMUM_LEASE_TTL: Duration = Duration.ofMillis(500)
         private val MAXIMUM_LEASE_TTL: Duration = Duration.ofMinutes(5)
+        private val MINIMUM_RECENTLY_ONLINE_WINDOW: Duration = Duration.ofMillis(500)
+        private val MAXIMUM_RECENTLY_ONLINE_WINDOW: Duration = Duration.ofHours(24)
         private const val MAX_INSTANCE_REF_BYTES = 128
         private val INSTANCE_REF_PATTERN = Regex("[A-Za-z0-9][A-Za-z0-9._:-]*")
 
@@ -63,13 +76,24 @@ internal class PresenceLeaseRedisKeyCodec(private val keyNamespace: String) {
     }
 
     fun encode(target: PresenceLeaseTarget): String {
-        val subjectDigest =
-            digest("${target.platformScopeRef}\u0000${target.actorType.name}\u0000${target.subjectRef}")
         val deviceDigest = digest(target.deviceRef)
-        return "$keyNamespace:presence:v1:s:$subjectDigest:d:$deviceDigest".also { key ->
-            check(key.toByteArray(Charsets.UTF_8).size <= MAX_KEY_BYTES) {
-                "Presence lease key exceeded its frozen byte bound"
-            }
+        return "${subjectPrefix(target.subjectTarget())}:d:$deviceDigest".also(::requireBoundedKey)
+    }
+
+    fun deviceLeasePattern(target: PresenceSubjectTarget): String =
+        "${subjectPrefix(target)}:d:*".also(::requireBoundedKey)
+
+    fun recentMarker(target: PresenceSubjectTarget): String =
+        "${subjectPrefix(target)}:recent".also(::requireBoundedKey)
+
+    private fun subjectPrefix(target: PresenceSubjectTarget): String {
+        val subjectDigest = digest("${target.platformScopeRef}\u0000${target.actorType.name}\u0000${target.subjectRef}")
+        return "$keyNamespace:presence:v1:s:$subjectDigest"
+    }
+
+    private fun requireBoundedKey(key: String) {
+        check(key.toByteArray(Charsets.UTF_8).size <= MAX_KEY_BYTES) {
+            "Presence lease key exceeded its frozen byte bound"
         }
     }
 
@@ -89,6 +113,12 @@ internal interface PresenceLeaseRedisConnection : AutoCloseable {
     fun compareOwnerAndRefresh(key: String, owner: String, ttlMillis: Long): Boolean
 
     fun compareOwnerAndDelete(key: String, owner: String): Boolean
+
+    fun setMarkerWithTtl(key: String, ttlMillis: Long): Boolean
+
+    fun hasAnyMatchingKey(pattern: String): Boolean
+
+    fun exists(key: String): Boolean
 
     fun remainingTtlMillis(key: String): Long
 }
@@ -149,6 +179,21 @@ private class LettucePresenceLeaseRedisConnection(private val connection: Statef
         owner,
     ) == 1L
 
+    override fun setMarkerWithTtl(key: String, ttlMillis: Long): Boolean =
+        connection.sync().set(key, RECENT_MARKER_VALUE, io.lettuce.core.SetArgs.Builder.px(ttlMillis)) == "OK"
+
+    override fun hasAnyMatchingKey(pattern: String): Boolean {
+        var cursor: ScanCursor = ScanCursor.INITIAL
+        do {
+            val scanned = connection.sync().scan(cursor, ScanArgs.Builder.matches(pattern).limit(SCAN_LIMIT))
+            if (scanned.keys.isNotEmpty()) return true
+            cursor = scanned
+        } while (!cursor.isFinished)
+        return false
+    }
+
+    override fun exists(key: String): Boolean = connection.sync().exists(key) == 1L
+
     override fun remainingTtlMillis(key: String): Long = connection.sync().pttl(key)
 
     override fun close() {
@@ -162,6 +207,8 @@ private class LettucePresenceLeaseRedisConnection(private val connection: Statef
         const val COMPARE_AND_DELETE_SCRIPT =
             "if redis.call('GET', KEYS[1]) == ARGV[1] then " +
                 "return redis.call('DEL', KEYS[1]) else return 0 end"
+        const val RECENT_MARKER_VALUE = "1"
+        const val SCAN_LIMIT = 64L
     }
 }
 
@@ -171,7 +218,8 @@ internal class RedisPresenceLeaseStore(
     private val provider: PresenceLeaseRedisConnectionProvider =
         LettucePresenceLeaseRedisConnectionProvider(redisConfig),
     private val leaseRefFactory: PresenceLeaseRefFactory = SecurePresenceLeaseRefFactory(),
-) : EphemeralPresenceLeaseStore {
+) : EphemeralPresenceLeaseStore,
+    EphemeralPresenceSnapshotReader {
     override val refreshInterval: Duration = leaseConfig.refreshInterval
     private val keyCodec = PresenceLeaseRedisKeyCodec(redisConfig.keyNamespace)
     private val closed = AtomicBoolean()
@@ -186,23 +234,51 @@ internal class RedisPresenceLeaseStore(
                     leaseRef = leaseRefFactory.create().also(::requireLeaseRef),
                 )
             val applied = execute { current ->
-                current.setWithTtl(keyCodec.encode(target), ownerValue(handle), leaseConfig.leaseTtl.toMillis())
+                current.setWithTtl(keyCodec.encode(target), ownerValue(handle), leaseConfig.leaseTtl.toMillis()) &&
+                    current.setMarkerWithTtl(
+                        keyCodec.recentMarker(target.subjectTarget()),
+                        leaseConfig.leaseTtl.plus(leaseConfig.recentlyOnlineWindow).toMillis(),
+                    )
             }
             if (applied == true) PresenceLeaseAcquireResult.Acquired(handle) else PresenceLeaseAcquireResult.Unavailable
         }
 
     override suspend fun refresh(handle: PresenceLeaseHandle): PresenceLeaseMutationResult =
         mutate(handle) { current, key, owner ->
-            current.compareOwnerAndRefresh(key, owner, leaseConfig.leaseTtl.toMillis())
+            current.compareOwnerAndRefresh(key, owner, leaseConfig.leaseTtl.toMillis()) &&
+                current.setMarkerWithTtl(
+                    keyCodec.recentMarker(handle.target.subjectTarget()),
+                    leaseConfig.leaseTtl.plus(leaseConfig.recentlyOnlineWindow).toMillis(),
+                )
         }
 
     override suspend fun release(handle: PresenceLeaseHandle): PresenceLeaseMutationResult =
-        mutate(handle) { current, key, owner -> current.compareOwnerAndDelete(key, owner) }
+        mutate(handle) { current, key, owner ->
+            current.compareOwnerAndDelete(key, owner) &&
+                current.setMarkerWithTtl(
+                    keyCodec.recentMarker(handle.target.subjectTarget()),
+                    leaseConfig.recentlyOnlineWindow.toMillis(),
+                )
+        }
+
+    override suspend fun read(target: PresenceSubjectTarget): PresenceActivitySnapshot = withContext(Dispatchers.IO) {
+        execute { current ->
+            when {
+                current.hasAnyMatchingKey(keyCodec.deviceLeasePattern(target)) -> PresenceActivitySnapshot.ONLINE
+                current.exists(keyCodec.recentMarker(target)) -> PresenceActivitySnapshot.RECENTLY_ONLINE
+                else -> PresenceActivitySnapshot.OFFLINE
+            }
+        } ?: PresenceActivitySnapshot.UNAVAILABLE
+    }
 
     internal suspend fun remainingTtlMillis(target: PresenceLeaseTarget): Long? =
         withContext(Dispatchers.IO) { execute { it.remainingTtlMillis(keyCodec.encode(target)) } }
 
     internal fun redisKey(target: PresenceLeaseTarget): String = keyCodec.encode(target)
+
+    internal fun redisDeviceLeasePattern(target: PresenceSubjectTarget): String = keyCodec.deviceLeasePattern(target)
+
+    internal fun redisRecentMarkerKey(target: PresenceSubjectTarget): String = keyCodec.recentMarker(target)
 
     @Synchronized
     override fun close() {

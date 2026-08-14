@@ -5,11 +5,11 @@
 - Programme: `NEXO_CONNECT_LAB`
 - Repository: `connect-lab`
 - Branch: `main`
-- Accepted phase: `CONNECT.17`
-- Accepted HEAD: `dda283df8687030d9efcc25ad504766690ceef93`
+- Accepted phase: `CONNECT.18`
+- Accepted HEAD: `7273f10394d5c58831e27007a3c5cee4b3451987`
 - Immutable user baseline: `558d702bd5e7729721cde71d0e3080513798dcdd`
-- Active phase: `CONNECT.18`
-- Next phase after acceptance: `CONNECT.19`
+- Active phase: `CONNECT.19`
+- Next phase after acceptance: `CONNECT.20`
 
 `CONNECT.07` is the accepted governance commit `e330359...`; its historical
 subject used the temporary label `[CONNECT.01]`. The hash is preserved and the
@@ -104,6 +104,13 @@ frame; every sender and recipient is freshly conversation-authorised. A
 per-connection sliding window rejects floods, multi-instance Pub/Sub excludes
 the exact origin, PostgreSQL receives zero typing writes, and client frames
 expose neither device nor instance topology.
+
+`CONNECT.19` aggregates device-scoped leases into one privacy-aware subject
+projection. Any active device keeps the subject online; final disconnect moves
+to a bounded coarse recent window driven only by Redis relative TTL.
+Relationship, future block/mute hooks and visibility are evaluated in a
+uniform pipeline, while output excludes device counts, exact time and all
+routing topology.
 
 The empty `docker-compose.watch.yml` is tracked by the accepted user baseline.
 Later phase commits must preserve it byte-for-byte unless the user explicitly

@@ -88,3 +88,10 @@ refresh are rate limited per WebSocket, stop and disconnect clear owned leases,
 and crashes expire through Redis TTL. Only freshly authorised subscribers
 receive the bounded state; typing never enters PostgreSQL history and exposes
 no device or instance topology.
+
+Presence now aggregates all active device leases into one privacy-aware subject
+state. Disconnecting one device leaves the subject online while another lease
+remains; final disconnect enters only the coarse recent window. Redis relative
+TTL makes the decision independent of application clock skew, and uniform
+relationship/block/mute/visibility policy exposes neither topology nor denial
+reason and never writes mutable presence to PostgreSQL.

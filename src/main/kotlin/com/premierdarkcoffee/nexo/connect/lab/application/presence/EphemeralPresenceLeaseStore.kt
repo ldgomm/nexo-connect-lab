@@ -30,6 +30,12 @@ data class PresenceLeaseTarget(
         const val MAX_SCOPE_REF_BYTES = 128
         val DEVICE_REF_PATTERN = Regex("device_[A-Za-z0-9_-]{32}")
     }
+
+    fun subjectTarget(): PresenceSubjectTarget = PresenceSubjectTarget(
+        subjectRef = subjectRef,
+        actorType = actorType,
+        platformScopeRef = platformScopeRef,
+    )
 }
 
 data class PresenceLeaseHandle(val target: PresenceLeaseTarget, val ownerInstanceRef: String, val leaseRef: String)

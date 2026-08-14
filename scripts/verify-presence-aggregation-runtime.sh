@@ -8,7 +8,7 @@ ENV_FILE="${CONNECT_LAB_ENV_FILE:-}"
 COMPOSE_FILE="${PROJECT_DIR}/compose.yaml"
 
 fail() {
-    printf 'REDIS_PRESENCE_LEASE_RUNTIME=FAIL\n' >&2
+    printf 'REDIS_PRESENCE_AGGREGATION_RUNTIME=FAIL\n' >&2
     printf 'ERROR=%s\n' "$1" >&2
     exit 1
 }
@@ -32,6 +32,11 @@ redis_admin() {
     docker exec \
         -e REDISCLI_AUTH="$(env_value CONNECT_LAB_REDIS_PASSWORD)" \
         "$redis_id" redis-cli --no-auth-warning "$@"
+}
+
+presence_key_count() {
+    redis_admin --scan --pattern 'nexo-connect-lab:presence:v1:*' |
+        awk 'NF { count++ } END { print count + 0 }'
 }
 
 presence_device_key_count() {
@@ -59,7 +64,7 @@ durable_hash() {
         --schema=connect \
         --no-owner \
         --no-privileges \
-        --restrict-key=NexoConnectLabConnect17PresenceV1 |
+        --restrict-key=NexoConnectLabConnect19PresenceAggregationV1 |
         shasum -a 256 |
         awk '{ print $1 }'
 }
@@ -71,10 +76,10 @@ command -v docker >/dev/null 2>&1 || fail DOCKER_MISSING
 [[ -n "$(compose ps -q redis)" && -n "$(compose ps -q postgres)" ]] || fail STACK_NOT_RUNNING
 
 clear_presence_keys || fail PRESENCE_KEY_PRE_CLEANUP_FAILED
-[[ "$(presence_device_key_count)" == "0" ]] || fail PRESENCE_KEY_PRECONDITION_FAILED
+[[ "$(presence_key_count)" == "0" ]] || fail PRESENCE_KEY_PRECONDITION_FAILED
 before_hash="$(durable_hash)" || fail DURABLE_HASH_BEFORE_FAILED
 
-CONNECT_LAB_REDIS_PRESENCE_INTEGRATION=true \
+CONNECT_LAB_REDIS_PRESENCE_AGGREGATION_INTEGRATION=true \
 CONNECT_LAB_REDIS_HOST=127.0.0.1 \
 CONNECT_LAB_REDIS_PORT="$(env_value CONNECT_LAB_REDIS_HOST_PORT)" \
 CONNECT_LAB_REDIS_APP_USER="$(env_value CONNECT_LAB_REDIS_APP_USER)" \
@@ -88,18 +93,21 @@ CONNECT_LAB_REDIS_RECONNECT_MIN_DELAY_MILLIS="$(env_value CONNECT_LAB_REDIS_RECO
 CONNECT_LAB_REDIS_RECONNECT_MAX_DELAY_MILLIS="$(env_value CONNECT_LAB_REDIS_RECONNECT_MAX_DELAY_MILLIS)" \
 CONNECT_LAB_REDIS_REQUEST_QUEUE_SIZE="$(env_value CONNECT_LAB_REDIS_REQUEST_QUEUE_SIZE)" \
 ./gradlew --no-daemon test \
-    --tests 'com.premierdarkcoffee.nexo.connect.lab.infrastructure.redis.RedisPresenceLeaseIntegrationTest' \
+    --tests 'com.premierdarkcoffee.nexo.connect.lab.infrastructure.redis.RedisPresenceAggregationIntegrationTest' \
     --rerun-tasks --console=plain
 
 after_hash="$(durable_hash)" || fail DURABLE_HASH_AFTER_FAILED
-[[ "$before_hash" == "$after_hash" ]] || fail POSTGRES_DURABLE_STATE_CHANGED_DURING_PRESENCE_PROBE
-stale_count="$(presence_device_key_count)" || fail PRESENCE_KEY_POSTCHECK_FAILED
-[[ "$stale_count" == "0" ]] || fail PRESENCE_STALE_KEYS_REMAIN
+[[ "$before_hash" == "$after_hash" ]] || fail POSTGRES_DURABLE_STATE_CHANGED_DURING_PRESENCE_AGGREGATION
+stale_device_count="$(presence_device_key_count)" || fail PRESENCE_DEVICE_KEY_POSTCHECK_FAILED
+[[ "$stale_device_count" == "0" ]] || fail PRESENCE_STALE_DEVICE_KEYS_REMAIN
+remaining_key_count="$(presence_key_count)" || fail PRESENCE_KEY_POSTCHECK_FAILED
+[[ "$remaining_key_count" == "0" ]] || fail PRESENCE_RECENT_MARKER_DID_NOT_EXPIRE
 
-printf 'PRESENCE_LEASE_REAL_REDIS=PASS\n'
-printf 'PRESENCE_CRASH_EXPIRY=PASS\n'
-printf 'PRESENCE_RECONNECT_RENEWAL=PASS\n'
-printf 'PRESENCE_STALE_KEY_COUNT=0\n'
+printf 'PRESENCE_AGGREGATION_REAL_REDIS=PASS\n'
+printf 'PRESENCE_MULTI_DEVICE_RELEASE_ONE=PASS\n'
+printf 'PRESENCE_RECENT_WINDOW_EXPIRY=PASS\n'
+printf 'PRESENCE_CLOCK_SKEW_TOLERANCE=PASS\n'
+printf 'PRESENCE_STALE_DEVICE_KEY_COUNT=0\n'
 printf 'POSTGRES_DURABLE_HASH_PRESERVED=PASS\n'
 printf 'PRESENCE_MUTABLE_POSTGRES_WRITES=0\n'
-printf 'REDIS_PRESENCE_LEASE_RUNTIME=PASS\n'
+printf 'REDIS_PRESENCE_AGGREGATION_RUNTIME=PASS\n'
