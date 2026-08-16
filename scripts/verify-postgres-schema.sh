@@ -28,9 +28,12 @@ read_env_value() {
 }
 
 POSTGRES_USER="$(read_env_value CONNECT_LAB_POSTGRES_USER)"
+POSTGRES_APP_USER="$(read_env_value CONNECT_LAB_POSTGRES_APP_USER)"
 DATABASE_NAME="$(read_env_value CONNECT_LAB_DATABASE_NAME)"
 
-if [[ ! "$POSTGRES_USER" =~ ^[a-z0-9_]+$ ]] || [[ ! "$DATABASE_NAME" =~ ^[a-z0-9_]+$ ]]; then
+if [[ ! "$POSTGRES_USER" =~ ^[a-z0-9_]+$ ]] ||
+    [[ ! "$POSTGRES_APP_USER" =~ ^[a-z0-9_]+$ ]] ||
+    [[ ! "$DATABASE_NAME" =~ ^[a-z0-9_]+$ ]]; then
     printf 'ERROR=POSTGRES_SCHEMA_ENV_VALUE_INVALID\n' >&2
     exit 3
 fi
@@ -70,6 +73,11 @@ if [[ "$(query_scalar "SELECT count(*) FROM public.flyway_schema_history WHERE v
     exit 6
 fi
 
+if [[ "$(query_scalar "SELECT count(*) FROM public.flyway_schema_history WHERE version = '6' AND success")" != "1" ]]; then
+    printf 'ERROR=FLYWAY_HISTORY_VERSION_SIX_MISSING\n' >&2
+    exit 6
+fi
+
 if [[ "$(query_scalar "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'connect' AND table_name IN ('conversations','conversation_participants','messages','message_identities','business_client_conversation_keys')")" != "5" ]]; then
     printf 'ERROR=POSTGRES_SCHEMA_TABLE_SET_MISMATCH\n' >&2
     exit 7
@@ -86,7 +94,17 @@ if [[ "$(query_scalar "SELECT count(*) FROM information_schema.columns WHERE tab
     printf 'ERROR=POSTGRES_SCHEMA_B5_LISTING_INDEX_SET_MISMATCH\n' >&2
     exit 8
 fi
+
+if [[ "$(query_scalar "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'connect' AND table_name = 'push_device_registrations'")" != "1" ]] ||
+    [[ "$(query_scalar "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'connect' AND table_name = 'push_device_registrations'")" != "21" ]] ||
+    [[ "$(query_scalar "SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace WHERE n.nspname = 'connect' AND c.conname IN ('ck_connect_push_registration_ref','ck_connect_push_platform_scope_ref','ck_connect_push_organization_scope_ref','ck_connect_push_business_scope_ref','ck_connect_push_subject_ref','ck_connect_push_actor_type','ck_connect_push_scope_shape','ck_connect_push_application','ck_connect_push_application_owner','ck_connect_push_provider','ck_connect_push_environment','ck_connect_push_device_fingerprint','ck_connect_push_token_fingerprint','ck_connect_push_token_material','ck_connect_push_token_version','ck_connect_push_version','ck_connect_push_timestamps')")" != "17" ]] ||
+    [[ "$(query_scalar "SELECT count(*) FROM pg_indexes WHERE schemaname = 'connect' AND indexname IN ('uq_connect_push_active_device_binding','uq_connect_push_active_token_fingerprint','ix_connect_push_owner_active')")" != "3" ]] ||
+    [[ "$(query_scalar "SELECT count(*) FROM information_schema.role_table_grants WHERE table_schema = 'connect' AND table_name = 'push_device_registrations' AND grantee = '${POSTGRES_APP_USER}' AND privilege_type IN ('SELECT','INSERT','UPDATE')")" != "3" ]]; then
+    printf 'ERROR=POSTGRES_PUSH_DEVICE_REGISTRY_SCHEMA_MISMATCH\n' >&2
+    exit 8
+fi
 printf 'POSTGRES_SCHEMA_OBJECTS=PASS\n'
+printf 'POSTGRES_PUSH_DEVICE_REGISTRY_SCHEMA=PASS\n'
 
 compose exec -T postgres psql -X -v ON_ERROR_STOP=1 \
     -U "$POSTGRES_USER" -d "$DATABASE_NAME" <<'SQL'

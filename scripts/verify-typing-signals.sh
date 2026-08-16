@@ -155,8 +155,8 @@ grep -Fq 'nexo.connect.realtime.v1.typing-state' \
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisRealtimeFanoutLifecycle.kt ||
     fail TYPING_CHANNEL_MISSING
 
-[[ "$(find "$MIGRATION_DIR" -maxdepth 1 -type f -name 'V*__*.sql' -print | wc -l | tr -d '[:space:]')" == "5" ]] ||
-    fail POSTGRES_MIGRATION_SET_CHANGED
+migration_count="$(find "$MIGRATION_DIR" -maxdepth 1 -type f -name 'V*__*.sql' -print | wc -l | tr -d '[:space:]')"
+[[ "$migration_count" =~ ^[0-9]+$ && "$migration_count" -ge 5 ]] || fail POSTGRES_MIGRATION_BASELINE_MISSING
 if grep -REin '(^|[^[:alnum:]_])typing([^[:alnum:]_]|$)' "$MIGRATION_DIR"; then
     fail TYPING_DURABLE_MIGRATION_DETECTED
 fi

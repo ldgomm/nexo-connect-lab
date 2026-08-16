@@ -159,8 +159,8 @@ for redis_contract in \
 done
 
 grep -Fq '+scan +exists' docker/redis/start-ephemeral-redis.sh || fail REDIS_AGGREGATION_ACL_MISSING
-[[ "$(find "$MIGRATION_DIR" -maxdepth 1 -type f -name 'V*__*.sql' -print | wc -l | tr -d '[:space:]')" == "5" ]] ||
-    fail POSTGRES_MIGRATION_SET_CHANGED
+migration_count="$(find "$MIGRATION_DIR" -maxdepth 1 -type f -name 'V*__*.sql' -print | wc -l | tr -d '[:space:]')"
+[[ "$migration_count" =~ ^[0-9]+$ && "$migration_count" -ge 5 ]] || fail POSTGRES_MIGRATION_BASELINE_MISSING
 if grep -REin \
     '(^|[^[:alnum:]_])(presence|last_seen|last_seen_at|online_status)([^[:alnum:]_]|$)' \
     "$MIGRATION_DIR"; then

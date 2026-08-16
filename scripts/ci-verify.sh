@@ -129,6 +129,7 @@ required_files=(
     docs/architecture/CONNECT_18_BOUNDED_TYPING_SIGNALS.md
     docs/architecture/CONNECT_19_PRIVACY_AWARE_PRESENCE_AGGREGATION.md
     docs/architecture/CONNECT_20_EPHEMERAL_SIGNAL_RESILIENCE.md
+    docs/architecture/CONNECT_21_PROTECTED_PUSH_DEVICE_REGISTRY.md
     docs/architecture/connect-multi-instance-fanout-contract.properties
     docs/architecture/connect-redis-ephemeral-boundary.properties
     docs/architecture/connect-realtime-fanout.properties
@@ -139,6 +140,7 @@ required_files=(
     docs/architecture/connect-typing-signals.properties
     docs/architecture/connect-presence-aggregation.properties
     docs/architecture/connect-ephemeral-signal-resilience.properties
+    docs/architecture/connect-protected-push-device-registry.properties
     docs/governance/CONNECT_PHASE_GOVERNANCE.md
     docs/governance/INTELLIJ_FORMATTING.md
     docs/governance/SEMANTIC_ACCEPTANCE_GATES.md
@@ -173,6 +175,7 @@ required_files=(
     scripts/verify-presence-aggregation-runtime.sh
     scripts/verify-ephemeral-signal-resilience.sh
     scripts/verify-ephemeral-signal-resilience-runtime.sh
+    scripts/verify-protected-push-device-registry.sh
     scripts/verify-formatting-convergence.sh
     scripts/verify-multi-instance-fanout-architecture.sh
     scripts/verify-multi-instance-realtime-fanout.sh
@@ -187,6 +190,7 @@ required_files=(
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/persistence/ConversationRepository.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/persistence/DurableMessageHistoryRepository.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/persistence/DurableReceiptCursorRepository.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/persistence/PushDeviceRegistry.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/ConversationSubscriptionAuthorizer.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/AuthorizedConversationEventHub.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/DurableTextMessageCoordinator.kt
@@ -211,7 +215,11 @@ required_files=(
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/DurableReceiptCursor.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/RealtimeFanoutEnvelope.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/realtime/EphemeralTypingSignal.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/push/PushDeviceRegistration.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/push/PushTokenSecret.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresDurableReceiptCursorRepository.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresPushDeviceRegistry.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/push/ProtectedPushTokenCodec.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisEphemeralConfig.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisEphemeralCircuit.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisEphemeralLifecycle.kt
@@ -221,6 +229,7 @@ required_files=(
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisTypingLeaseStore.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisTypingLeaseLifecycle.kt
     src/main/resources/db/migration/V5__durable_receipt_cursors.sql
+    src/main/resources/db/migration/V6__protected_push_device_registry.sql
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/conversation/DurableConversationListing.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/conversation/CreateBusinessClientConversationCommand.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/conversation/DurableConversationSnapshot.kt
@@ -238,6 +247,7 @@ required_files=(
     src/postgresIntegrationTest/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresConversationListingIntegrationTest.kt
     src/postgresIntegrationTest/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresDurableMessageHistoryRepositoryIntegrationTest.kt
     src/postgresIntegrationTest/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresDurableRestartRecoveryIntegrationTest.kt
+    src/postgresIntegrationTest/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresPushDeviceRegistryIntegrationTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/persistence/BusinessClientConversationPersistenceBundleTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/conversation/DurableConversationListingTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/message/DurableMessageHistoryTest.kt
@@ -281,6 +291,7 @@ required_files=(
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisTypingLeaseIntegrationTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisTypingSignalFanoutIntegrationTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/redis/RedisEphemeralSignalResilienceIntegrationTest.kt
+    src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/push/ProtectedPushTokenCodecTest.kt
 )
 
 for required_file in "${required_files[@]}"; do
@@ -391,6 +402,7 @@ bash -n scripts/verify-presence-aggregation.sh
 bash -n scripts/verify-presence-aggregation-runtime.sh
 bash -n scripts/verify-ephemeral-signal-resilience.sh
 bash -n scripts/verify-ephemeral-signal-resilience-runtime.sh
+bash -n scripts/verify-protected-push-device-registry.sh
 bash -n scripts/verify-formatting-convergence.sh
 bash -n scripts/verify-multi-instance-fanout-architecture.sh
 bash -n scripts/verify-multi-instance-realtime-fanout.sh
@@ -445,6 +457,9 @@ printf 'PRESENCE_AGGREGATION_CONTRACT_GATE=PASS\n'
 ./scripts/verify-ephemeral-signal-resilience.sh
 printf 'EPHEMERAL_SIGNAL_RESILIENCE_CONTRACT_GATE=PASS\n'
 
+./scripts/verify-protected-push-device-registry.sh
+printf 'PROTECTED_PUSH_DEVICE_REGISTRY_CONTRACT_GATE=PASS\n'
+
 CONNECT_C5_MIGRATION_DIRECTORY="src/main/resources/db/migration"
 CONNECT_C5_MIGRATION_FILE_COUNT="$(
     find "$CONNECT_C5_MIGRATION_DIRECTORY" -maxdepth 1 -type f -name 'V*__*.sql' -print |
@@ -456,18 +471,21 @@ CONNECT_C5_V2_COUNT="$(find "$CONNECT_C5_MIGRATION_DIRECTORY" -maxdepth 1 -type 
 CONNECT_C5_V3_COUNT="$(find "$CONNECT_C5_MIGRATION_DIRECTORY" -maxdepth 1 -type f -name 'V3__*.sql' -print | wc -l | tr -d '[:space:]')"
 CONNECT_C5_V4_COUNT="$(find "$CONNECT_C5_MIGRATION_DIRECTORY" -maxdepth 1 -type f -name 'V4__*.sql' -print | wc -l | tr -d '[:space:]')"
 CONNECT_C5_V5_COUNT="$(find "$CONNECT_C5_MIGRATION_DIRECTORY" -maxdepth 1 -type f -name 'V5__*.sql' -print | wc -l | tr -d '[:space:]')"
-if [[ "$CONNECT_C5_MIGRATION_FILE_COUNT" != "5" ]] ||
+CONNECT_C5_V6_COUNT="$(find "$CONNECT_C5_MIGRATION_DIRECTORY" -maxdepth 1 -type f -name 'V6__*.sql' -print | wc -l | tr -d '[:space:]')"
+if [[ "$CONNECT_C5_MIGRATION_FILE_COUNT" != "6" ]] ||
     [[ "$CONNECT_C5_V1_COUNT" != "1" ]] ||
     [[ "$CONNECT_C5_V2_COUNT" != "1" ]] ||
     [[ "$CONNECT_C5_V3_COUNT" != "1" ]] ||
     [[ "$CONNECT_C5_V4_COUNT" != "1" ]] ||
     [[ "$CONNECT_C5_V5_COUNT" != "1" ]] ||
-    [[ ! -f "$CONNECT_C5_MIGRATION_DIRECTORY/V5__durable_receipt_cursors.sql" ]]; then
+    [[ "$CONNECT_C5_V6_COUNT" != "1" ]] ||
+    [[ ! -f "$CONNECT_C5_MIGRATION_DIRECTORY/V5__durable_receipt_cursors.sql" ]] ||
+    [[ ! -f "$CONNECT_C5_MIGRATION_DIRECTORY/V6__protected_push_device_registry.sql" ]]; then
     printf 'CI_STATIC_CONTRACT=FAIL\n' >&2
     printf 'ERROR=CONNECT_C5_MIGRATION_SET_MISMATCH\n' >&2
     exit 20
 fi
-CONNECT_C5_MIGRATION_SET=EXACT_V1_TO_V5
+CONNECT_C5_MIGRATION_SET=EXACT_V1_TO_V6
 
 if grep -En 'route\(|webSocket|WebSocket|/messages|/conversations' \
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/persistence/ConversationRepository.kt \

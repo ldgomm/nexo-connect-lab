@@ -107,6 +107,17 @@ tasks.register<Test>("semanticAcceptanceTest") {
         includeTestsMatching("*.AuthenticatedRealtimeTypingSignalTest")
         includeTestsMatching("*.PrivacyAwarePresenceAggregatorTest")
         includeTestsMatching("*.RedisEphemeralSignalResilienceIntegrationTest")
+        includeTestsMatching("*.ProtectedPushTokenCodecTest")
+    }
+}
+
+tasks.register<Test>("pushDeviceRegistryTest") {
+    description = "Verifies protected push tokens, actor/application ownership, and disclosure boundaries."
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    filter {
+        includeTestsMatching("*.ProtectedPushTokenCodecTest")
     }
 }
 

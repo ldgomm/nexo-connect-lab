@@ -100,3 +100,9 @@ Presence and typing resilience is exercised against real isolated Redis with
 flush, extreme clock skew, duplicate refresh, instance crash and rapid
 reconnect injection. Old handles cannot resurrect state, stale keys reach zero,
 and a before/after PostgreSQL schema hash proves durable chat is unchanged.
+
+Push devices now have a durable, owner-scoped PostgreSQL registry. Provider
+tokens are stored only as versioned AES-256-GCM ciphertext with separate HMAC
+fingerprints; registration, rotation and revocation enforce actor/application
+ownership, tenant isolation and optimistic version fencing. Revocation erases
+all protected token material, and every public result exposes metadata only.

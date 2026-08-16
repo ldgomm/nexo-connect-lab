@@ -163,8 +163,8 @@ if grep -Ein 'Instant\.now|Clock\.|System\.currentTimeMillis|LocalDateTime\.now'
 fi
 grep -Fq 'SetArgs.Builder.px(ttlMillis)' "$PRESENCE_STORE" || fail REDIS_RELATIVE_TTL_MISSING
 grep -Fq 'PEXPIRE' "$PRESENCE_STORE" || fail REDIS_RELATIVE_REFRESH_MISSING
-[[ "$(find "$MIGRATION_DIR" -maxdepth 1 -type f -name 'V*__*.sql' -print | wc -l | tr -d '[:space:]')" == "5" ]] ||
-    fail POSTGRES_MIGRATION_SET_CHANGED
+migration_count="$(find "$MIGRATION_DIR" -maxdepth 1 -type f -name 'V*__*.sql' -print | wc -l | tr -d '[:space:]')"
+[[ "$migration_count" =~ ^[0-9]+$ && "$migration_count" -ge 5 ]] || fail POSTGRES_MIGRATION_BASELINE_MISSING
 
 awk '$0 == "failure.redis.flushdb=INJECTED" { print "failure.redis.flushdb=IGNORED"; next } { print }' \
     "$CONTRACT_FILE" > "$FLUSH_MUTATION"

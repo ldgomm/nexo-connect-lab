@@ -5,11 +5,11 @@
 - Programme: `NEXO_CONNECT_LAB`
 - Repository: `connect-lab`
 - Branch: `main`
-- Accepted phase: `CONNECT.19`
-- Accepted HEAD: `7fa02c47827380bda419f426dc09f01b5bd58c47`
+- Accepted phase: `CONNECT.20`
+- Accepted HEAD: `3c96ce2790ba641afc28e15b662569d2204b36fa`
 - Immutable user baseline: `558d702bd5e7729721cde71d0e3080513798dcdd`
-- Active phase: `CONNECT.20`
-- Next phase after acceptance: `CONNECT.21`
+- Active phase: `CONNECT.21`
+- Next phase after acceptance: `CONNECT.22`
 
 `CONNECT.07` is the accepted governance commit `e330359...`; its historical
 subject used the temporary label `[CONNECT.01]`. The hash is preserved and the
@@ -117,6 +117,14 @@ refreshes, instance crash and rapid reconnect into presence and typing. Old
 handles cannot resurrect flushed state, fresh instance ownership is fenced,
 all ephemeral keys expire, and the complete PostgreSQL durable hash remains
 unchanged.
+
+`CONNECT.21` introduces the durable push-device registry in the isolated
+Connect PostgreSQL schema. Tokens are protected with versioned AES-256-GCM,
+separate HMAC fingerprints and full owner/application authenticated data.
+Every operation enforces actor-shaped scopes, uniform denial and optimistic
+version fencing; revocation cryptographically erases stored token material.
+Public registry results expose metadata only, and provider delivery remains
+deferred to the notification outbox and adapter phases.
 
 The empty `docker-compose.watch.yml` is tracked by the accepted user baseline.
 Later phase commits must preserve it byte-for-byte unless the user explicitly

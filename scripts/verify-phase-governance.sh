@@ -67,10 +67,10 @@ require_property "$POLICY_FILE" baseline.head 558d702bd5e7729721cde71d0e30805137
 require_property "$POLICY_FILE" baseline.parent e330359dc6602e9a33da891b5fdb64ed8c199f38
 require_property "$POLICY_FILE" baseline.commit_count 31
 require_property "$POLICY_FILE" baseline.subject .
-require_property "$POLICY_FILE" accepted.phase CONNECT.19
-require_property "$POLICY_FILE" accepted.head 7fa02c47827380bda419f426dc09f01b5bd58c47
-require_property "$POLICY_FILE" establishing.phase CONNECT.20
-require_property "$POLICY_FILE" next.phase CONNECT.21
+require_property "$POLICY_FILE" accepted.phase CONNECT.20
+require_property "$POLICY_FILE" accepted.head 3c96ce2790ba641afc28e15b662569d2204b36fa
+require_property "$POLICY_FILE" establishing.phase CONNECT.21
+require_property "$POLICY_FILE" next.phase CONNECT.22
 require_property "$POLICY_FILE" commits.per.phase 1
 require_property "$POLICY_FILE" intermediate.commits forbidden
 require_property "$POLICY_FILE" commit.before.full_pass forbidden
@@ -122,6 +122,15 @@ require_property "$POLICY_FILE" connect.ephemeral.clock.source redis_relative_tt
 require_property "$POLICY_FILE" connect.ephemeral.stale.presence.keys 0
 require_property "$POLICY_FILE" connect.ephemeral.stale.typing.keys 0
 require_property "$POLICY_FILE" connect.ephemeral.durable.hash preserved
+require_property "$POLICY_FILE" connect.push.registry.truth postgresql
+require_property "$POLICY_FILE" connect.push.token.storage aes_256_gcm_ciphertext
+require_property "$POLICY_FILE" connect.push.token.fingerprint hmac_sha256
+require_property "$POLICY_FILE" connect.push.device.fingerprint hmac_sha256_scoped
+require_property "$POLICY_FILE" connect.push.token.disclosure.count 0
+require_property "$POLICY_FILE" connect.push.scope.ownership required
+require_property "$POLICY_FILE" connect.push.tenant.crossover denied
+require_property "$POLICY_FILE" connect.push.rotation version_fenced
+require_property "$POLICY_FILE" connect.push.revocation cryptographic_erasure
 
 [[ "$(git rev-parse 558d702bd5e7729721cde71d0e3080513798dcdd^ 2>/dev/null || true)" == \
     "e330359dc6602e9a33da891b5fdb64ed8c199f38" ]] || fail "USER_BASELINE_PARENT_MISMATCH"
@@ -201,10 +210,16 @@ require_property "$POLICY_FILE" connect.ephemeral.durable.hash preserved
     fail "CONNECT_19_COMMIT_COUNT_MISMATCH"
 [[ "$(git show -s --format=%s 7fa02c47827380bda419f426dc09f01b5bd58c47 2>/dev/null || true)" == \
     "feat(connect): [CONNECT.19] aggregate privacy-aware presence" ]] || fail "CONNECT_19_SUBJECT_MISMATCH"
+[[ "$(git rev-parse 3c96ce2790ba641afc28e15b662569d2204b36fa^ 2>/dev/null || true)" == \
+    "7fa02c47827380bda419f426dc09f01b5bd58c47" ]] || fail "CONNECT_20_PARENT_MISMATCH"
+[[ "$(git rev-list --count 3c96ce2790ba641afc28e15b662569d2204b36fa 2>/dev/null || true)" == "44" ]] ||
+    fail "CONNECT_20_COMMIT_COUNT_MISMATCH"
+[[ "$(git show -s --format=%s 3c96ce2790ba641afc28e15b662569d2204b36fa 2>/dev/null || true)" == \
+    "test(connect): [CONNECT.20] prove ephemeral signal resilience" ]] || fail "CONNECT_20_SUBJECT_MISMATCH"
 
 require_property "$OWNERSHIP_FILE" manifest.version 1
 require_property "$OWNERSHIP_FILE" nexo_core.owns identity,business,branch,products,orders,payments,inventory,fiscal,accounting
-require_property "$OWNERSHIP_FILE" connect.owns conversations,participants,messages,sequences,receipts,presence,typing,media_metadata
+require_property "$OWNERSHIP_FILE" connect.owns conversations,participants,messages,sequences,receipts,presence,typing,media_metadata,push_device_registrations
 require_property "$OWNERSHIP_FILE" ai_lab.owns interpretation,orchestration,authorised_handoff
 require_property "$OWNERSHIP_FILE" connect.postgres.durable_truth true
 require_property "$OWNERSHIP_FILE" connect.redis.durable_truth false
@@ -214,7 +229,7 @@ require_property "$OWNERSHIP_FILE" connect.nexo_business_mutation forbidden
 require_property "$OWNERSHIP_FILE" connect.country_specific_legal_logic forbidden
 require_property "$OWNERSHIP_FILE" integration.first_phase CONNECT.46
 
-expected_phases="CONNECT.B CONNECT.C1 CONNECT.C2 CONNECT.C3 CONNECT.C4 CONNECT.C5 CONNECT.C6 CONNECT.07 CONNECT.USER.BASELINE CONNECT.08 CONNECT.09 CONNECT.10 CONNECT.11 CONNECT.12 CONNECT.13 CONNECT.14 CONNECT.15 CONNECT.16 CONNECT.17 CONNECT.18 CONNECT.19"
+expected_phases="CONNECT.B CONNECT.C1 CONNECT.C2 CONNECT.C3 CONNECT.C4 CONNECT.C5 CONNECT.C6 CONNECT.07 CONNECT.USER.BASELINE CONNECT.08 CONNECT.09 CONNECT.10 CONNECT.11 CONNECT.12 CONNECT.13 CONNECT.14 CONNECT.15 CONNECT.16 CONNECT.17 CONNECT.18 CONNECT.19 CONNECT.20"
 actual_phases=""
 baseline_count=0
 current_count=0
@@ -241,13 +256,13 @@ while IFS=$'\t' read -r record phase status commit subject; do
             ;;
         CURRENT)
             current_count=$((current_count + 1))
-            [[ "$phase" == "CONNECT.20" && "$status" == "IMPLEMENTING" && "$commit" == "DISCOVER_BY_SUBJECT" ]] ||
+            [[ "$phase" == "CONNECT.21" && "$status" == "IMPLEMENTING" && "$commit" == "DISCOVER_BY_SUBJECT" ]] ||
                 fail "LEDGER_CURRENT_MISMATCH"
             current_subject="$subject"
             ;;
         NEXT)
             next_count=$((next_count + 1))
-            [[ "$phase" == "CONNECT.21" && "$status" == "LOCKED" && "$commit" == "-" ]] ||
+            [[ "$phase" == "CONNECT.22" && "$status" == "LOCKED" && "$commit" == "-" ]] ||
                 fail "LEDGER_NEXT_MISMATCH"
             ;;
         "")
@@ -258,24 +273,24 @@ while IFS=$'\t' read -r record phase status commit subject; do
     esac
 done < "$LEDGER_FILE"
 
-[[ "$baseline_count" -eq 21 && "$actual_phases" == "$expected_phases" ]] ||
+[[ "$baseline_count" -eq 22 && "$actual_phases" == "$expected_phases" ]] ||
     fail "LEDGER_BASELINE_SEQUENCE_MISMATCH"
 [[ "$current_count" -eq 1 && "$next_count" -eq 1 ]] || fail "LEDGER_PHASE_CARDINALITY_MISMATCH"
 
-connect_20_matches="$(git log HEAD --format='%H%x09%s' | awk -F '\t' -v expected="$current_subject" '$2 == expected { print $1 }')"
-connect_20_count="$(printf '%s\n' "$connect_20_matches" | awk 'NF { count++ } END { print count + 0 }')"
+connect_21_matches="$(git log HEAD --format='%H%x09%s' | awk -F '\t' -v expected="$current_subject" '$2 == expected { print $1 }')"
+connect_21_count="$(printf '%s\n' "$connect_21_matches" | awk 'NF { count++ } END { print count + 0 }')"
 
-if [[ "$connect_20_count" == "0" ]]; then
-    [[ "$(git rev-parse HEAD)" == "7fa02c47827380bda419f426dc09f01b5bd58c47" ]] ||
-        fail "CONNECT_20_COMMIT_MISSING_AFTER_BASELINE"
-elif [[ "$connect_20_count" == "1" ]]; then
-    connect_20_commit="$connect_20_matches"
-    [[ "$(git rev-parse "${connect_20_commit}^")" == "7fa02c47827380bda419f426dc09f01b5bd58c47" ]] ||
-        fail "CONNECT_20_PARENT_MISMATCH"
-    [[ "$(git rev-list --count "$connect_20_commit")" == "44" ]] || fail "CONNECT_20_COMMIT_COUNT_MISMATCH"
-    git merge-base --is-ancestor "$connect_20_commit" HEAD || fail "CONNECT_20_NOT_ANCESTOR"
+if [[ "$connect_21_count" == "0" ]]; then
+    [[ "$(git rev-parse HEAD)" == "3c96ce2790ba641afc28e15b662569d2204b36fa" ]] ||
+        fail "CONNECT_21_COMMIT_MISSING_AFTER_BASELINE"
+elif [[ "$connect_21_count" == "1" ]]; then
+    connect_21_commit="$connect_21_matches"
+    [[ "$(git rev-parse "${connect_21_commit}^")" == "3c96ce2790ba641afc28e15b662569d2204b36fa" ]] ||
+        fail "CONNECT_21_PARENT_MISMATCH"
+    [[ "$(git rev-list --count "$connect_21_commit")" == "45" ]] || fail "CONNECT_21_COMMIT_COUNT_MISMATCH"
+    git merge-base --is-ancestor "$connect_21_commit" HEAD || fail "CONNECT_21_NOT_ANCESTOR"
 else
-    fail "CONNECT_20_COMMIT_NOT_UNIQUE"
+    fail "CONNECT_21_COMMIT_NOT_UNIQUE"
 fi
 
 if [[ "$REQUIRE_EMPTY_TRACKED_WATCH" -eq 1 ]]; then
@@ -295,7 +310,7 @@ fi
 printf 'PHASE_GOVERNANCE=PASS\n'
 printf 'BASELINE_CONNECT_07=PASS\n'
 printf 'USER_BASELINE=PASS\n'
-printf 'ACCEPTED_CONNECT_19=PASS\n'
+printf 'ACCEPTED_CONNECT_20=PASS\n'
 printf 'OWNERSHIP_MANIFEST=PASS\n'
 printf 'ONE_COMMIT_POLICY=PASS\n'
 printf 'MANUAL_IDE_ACTIONS=FORBIDDEN\n'
