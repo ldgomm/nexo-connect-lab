@@ -110,6 +110,7 @@ tasks.register<Test>("semanticAcceptanceTest") {
         includeTestsMatching("*.ProtectedPushTokenCodecTest")
         includeTestsMatching("*.NotificationOutboxIntentTest")
         includeTestsMatching("*.NotificationOutboxDeliveryWorkerTest")
+        includeTestsMatching("*.NotificationDeliveryRuntimeTest")
         includeTestsMatching("*.ApnsResponseClassifierTest")
         includeTestsMatching("*.ApnsProviderTokenSourceTest")
         includeTestsMatching("*.ApnsSandboxNotificationProviderTest")
@@ -160,6 +161,21 @@ tasks.register<Test>("pushPrivacyPolicyTest") {
     filter {
         includeTestsMatching("*.PushNotificationPolicyTest")
         includeTestsMatching("*.ApnsSandboxNotificationProviderTest")
+    }
+}
+
+tasks.register<Test>("offlinePushRecoveryTest") {
+    description = "Proves bounded push outage recovery, token-rotation fencing, and duplicate-free catch-up."
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    filter {
+        includeTestsMatching("*.ProtectedPushTokenCodecTest")
+        includeTestsMatching("*.NotificationOutboxDeliveryWorkerTest")
+        includeTestsMatching("*.NotificationDeliveryRuntimeTest")
+        includeTestsMatching("*.ApnsResponseClassifierTest")
+        includeTestsMatching("*.ApnsSandboxNotificationProviderTest")
+        includeTestsMatching("*.DurableConversationCatchUpTest")
     }
 }
 

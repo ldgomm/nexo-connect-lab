@@ -32,7 +32,7 @@ class ApnsSandboxNotificationProvider(
             ?: return rejected(NotificationDeliveryDiagnostic.REQUEST_REJECTED)
 
         return when (
-            val resolution = tokenResolver.withActiveToken(intent) { token ->
+            val resolution = tokenResolver.withActiveToken(intent) { token, tokenVersion ->
                 token.withBytes { tokenBytes ->
                     val deviceToken = tokenBytes.toApnsDeviceToken()
                     val payload = privacySafePayload(intent)
@@ -51,7 +51,7 @@ class ApnsSandboxNotificationProvider(
                                     if (classified.code == ApnsResponseCode.EXPIRED_PROVIDER_TOKEN) {
                                         authorizationSource.invalidate()
                                     }
-                                    classified.delivery
+                                    classified.withTokenRetirementFence(tokenVersion)
                                 }
                             }
                         }
@@ -141,6 +141,19 @@ class ApnsSandboxNotificationProvider(
             errorCode = NotificationFailureCode.PROVIDER_REJECTED,
             diagnostic = diagnostic,
         )
+
+    private fun ClassifiedApnsResponse.withTokenRetirementFence(
+        tokenVersion: Long,
+    ): NotificationProviderDeliveryResult = when (code) {
+        ApnsResponseCode.INVALID_DEVICE_TOKEN,
+        ApnsResponseCode.UNREGISTERED,
+        ->
+            (delivery as NotificationProviderDeliveryResult.PermanentFailure).copy(
+                invalidTokenVersion = tokenVersion,
+            )
+
+        else -> delivery
+    }
 
     private companion object {
         const val MAX_APNS_PAYLOAD_BYTES = 4096

@@ -8,6 +8,7 @@ import com.premierdarkcoffee.nexo.connect.lab.domain.push.PushTokenSecret
 import com.premierdarkcoffee.nexo.connect.lab.domain.push.requirePushReference
 import java.nio.charset.StandardCharsets
 import java.security.SecureRandom
+import java.util.Base64
 import javax.crypto.Cipher
 import javax.crypto.Mac
 import javax.crypto.spec.GCMParameterSpec
@@ -199,17 +200,60 @@ class ProtectedPushTokenCodec(
         }
     }
 
-    private companion object {
-        const val AES_KEY_BYTES = 32
-        const val FINGERPRINT_KEY_MIN_BYTES = 32
-        const val GCM_NONCE_BYTES = 12
-        const val GCM_TAG_BITS = 128
-        const val AES_ALGORITHM = "AES"
-        const val AES_TRANSFORMATION = "AES/GCM/NoPadding"
-        const val HMAC_ALGORITHM = "HmacSHA256"
+    companion object {
+        fun fromEnvironment(environment: Map<String, String> = System.getenv()): ProtectedPushTokenCodec {
+            fun required(name: String): String = environment[name]?.trim()?.takeIf(String::isNotEmpty)
+                ?: error("Missing required environment variable: $name")
 
-        val TOKEN_FINGERPRINT_DOMAIN: ByteArray = "push-token".toByteArray(StandardCharsets.US_ASCII)
-        val DEVICE_FINGERPRINT_DOMAIN: ByteArray = "push-device".toByteArray(StandardCharsets.US_ASCII)
+            val activeKeyVersion =
+                required("CONNECT_LAB_PUSH_TOKEN_KEY_VERSION").toIntOrNull()
+                    ?: error("CONNECT_LAB_PUSH_TOKEN_KEY_VERSION must be an integer")
+            val encryptionKey =
+                decodeKey(
+                    "CONNECT_LAB_PUSH_TOKEN_ENCRYPTION_KEY_B64",
+                    required("CONNECT_LAB_PUSH_TOKEN_ENCRYPTION_KEY_B64"),
+                )
+            val fingerprintKey =
+                decodeKey(
+                    "CONNECT_LAB_PUSH_TOKEN_FINGERPRINT_KEY_B64",
+                    required("CONNECT_LAB_PUSH_TOKEN_FINGERPRINT_KEY_B64"),
+                )
+            return try {
+                ProtectedPushTokenCodec(
+                    activeKeyVersion = activeKeyVersion,
+                    encryptionKeys = mapOf(activeKeyVersion to encryptionKey),
+                    fingerprintKey = fingerprintKey,
+                )
+            } finally {
+                encryptionKey.fill(0)
+                fingerprintKey.fill(0)
+            }
+        }
+
+        private fun decodeKey(name: String, encoded: String): ByteArray {
+            val decoded =
+                try {
+                    Base64.getDecoder().decode(encoded)
+                } catch (_: IllegalArgumentException) {
+                    throw IllegalArgumentException("$name must be valid Base64")
+                }
+            if (decoded.size != AES_KEY_BYTES) {
+                decoded.fill(0)
+                throw IllegalArgumentException("$name must decode to 256 bits")
+            }
+            return decoded
+        }
+
+        private const val AES_KEY_BYTES = 32
+        private const val FINGERPRINT_KEY_MIN_BYTES = 32
+        private const val GCM_NONCE_BYTES = 12
+        private const val GCM_TAG_BITS = 128
+        private const val AES_ALGORITHM = "AES"
+        private const val AES_TRANSFORMATION = "AES/GCM/NoPadding"
+        private const val HMAC_ALGORITHM = "HmacSHA256"
+
+        private val TOKEN_FINGERPRINT_DOMAIN: ByteArray = "push-token".toByteArray(StandardCharsets.US_ASCII)
+        private val DEVICE_FINGERPRINT_DOMAIN: ByteArray = "push-device".toByteArray(StandardCharsets.US_ASCII)
     }
 }
 

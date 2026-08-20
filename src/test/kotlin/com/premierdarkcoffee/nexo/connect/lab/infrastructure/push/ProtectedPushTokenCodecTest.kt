@@ -5,6 +5,7 @@ import com.premierdarkcoffee.nexo.connect.lab.domain.push.PushApplication
 import com.premierdarkcoffee.nexo.connect.lab.domain.push.PushEnvironment
 import com.premierdarkcoffee.nexo.connect.lab.domain.push.PushProvider
 import com.premierdarkcoffee.nexo.connect.lab.domain.push.PushTokenSecret
+import java.util.Base64
 import javax.crypto.AEADBadTagException
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -84,6 +85,47 @@ class ProtectedPushTokenCodecTest {
                 application = PushApplication.NEXO_BUSINESS_IOS,
                 organizationScopeRef = "organization-1",
                 businessScopeRef = null,
+            )
+        }
+    }
+
+    @Test
+    fun `runtime key factory requires valid 256 bit Base64 material`() {
+        val environment =
+            mapOf(
+                "CONNECT_LAB_PUSH_TOKEN_KEY_VERSION" to "9",
+                "CONNECT_LAB_PUSH_TOKEN_ENCRYPTION_KEY_B64" to
+                    Base64.getEncoder().encodeToString(ByteArray(32) { (it + 1).toByte() }),
+                "CONNECT_LAB_PUSH_TOKEN_FINGERPRINT_KEY_B64" to
+                    Base64.getEncoder().encodeToString(ByteArray(32) { (it + 65).toByte() }),
+            )
+
+        ProtectedPushTokenCodec.fromEnvironment(environment).use { codec ->
+            PushTokenSecret.fromBytes(TOKEN_BYTES).use { secret ->
+                codec.protect(secret, CLIENT_CONTEXT).use { protectedToken ->
+                    assertEquals(9, protectedToken.keyVersion)
+                    val plaintext = codec.revealForDelivery(protectedToken, CLIENT_CONTEXT)
+                    try {
+                        assertContentEquals(TOKEN_BYTES, plaintext)
+                    } finally {
+                        plaintext.fill(0)
+                    }
+                }
+            }
+        }
+
+        assertFailsWith<IllegalArgumentException> {
+            ProtectedPushTokenCodec.fromEnvironment(
+                environment + ("CONNECT_LAB_PUSH_TOKEN_ENCRYPTION_KEY_B64" to "not-base64"),
+            )
+        }
+        assertFailsWith<IllegalArgumentException> {
+            ProtectedPushTokenCodec.fromEnvironment(
+                environment +
+                    (
+                        "CONNECT_LAB_PUSH_TOKEN_FINGERPRINT_KEY_B64" to
+                            Base64.getEncoder().encodeToString(ByteArray(31))
+                        ),
             )
         }
     }

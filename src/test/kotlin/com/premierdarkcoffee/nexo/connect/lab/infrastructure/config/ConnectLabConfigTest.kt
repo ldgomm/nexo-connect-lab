@@ -28,6 +28,7 @@ class ConnectLabConfigTest {
         assertFalse(config.e2eeClaim)
         assertFalse(config.nexoDbDirectAccess)
         assertTrue(config.databaseLifecycleEnabled)
+        assertFalse(config.notificationDeliveryEnabled)
     }
 
     @Test
@@ -79,6 +80,17 @@ class ConnectLabConfigTest {
         assertFailsWith<IllegalStateException> { ConnectLabConfigLoader.load(source) }
     }
 
+    @Test
+    fun `rejects notification delivery without the PostgreSQL lifecycle`() {
+        val source =
+            validConfig(
+                "nexoConnectLab.databaseLifecycleEnabled" to "false",
+                "nexoConnectLab.notificationDeliveryEnabled" to "true",
+            )
+
+        assertFailsWith<IllegalArgumentException> { ConnectLabConfigLoader.load(source) }
+    }
+
     private fun validConfig(vararg overrides: Pair<String, String>): MapApplicationConfig {
         val values =
             linkedMapOf(
@@ -95,6 +107,7 @@ class ConnectLabConfigTest {
                 "nexoConnectLab.e2eeClaim" to "false",
                 "nexoConnectLab.nexoDbDirectAccess" to "false",
                 "nexoConnectLab.databaseLifecycleEnabled" to "true",
+                "nexoConnectLab.notificationDeliveryEnabled" to "false",
             )
         values.putAll(overrides)
         return MapApplicationConfig(*values.map { it.toPair() }.toTypedArray())

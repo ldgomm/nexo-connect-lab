@@ -171,8 +171,9 @@ class PostgresPushDeviceRegistryIntegrationTest {
         val intent = deliveryIntent(registered.registrationRef)
 
         val callbackCount = AtomicInteger()
-        val resolved = resolver.withActiveToken(intent) {
+        val resolved = resolver.withActiveToken(intent) { _, tokenVersion ->
             callbackCount.incrementAndGet()
+            assertEquals(1, tokenVersion)
             "delivery-token-resolved"
         }
         assertEquals(
@@ -183,7 +184,7 @@ class PostgresPushDeviceRegistryIntegrationTest {
 
         assertSame(
             PushDeliveryTokenResolution.NotFoundOrDenied,
-            resolver.withActiveToken(intent.copy(platformScopeRef = "platform-2")) { "must-not-run" },
+            resolver.withActiveToken(intent.copy(platformScopeRef = "platform-2")) { _, _ -> "must-not-run" },
         )
 
         assertIs<RevokePushDeviceResult.Revoked>(
@@ -191,7 +192,7 @@ class PostgresPushDeviceRegistryIntegrationTest {
         )
         assertSame(
             PushDeliveryTokenResolution.NotFoundOrDenied,
-            resolver.withActiveToken(intent) { "must-not-run" },
+            resolver.withActiveToken(intent) { _, _ -> "must-not-run" },
         )
     }
 

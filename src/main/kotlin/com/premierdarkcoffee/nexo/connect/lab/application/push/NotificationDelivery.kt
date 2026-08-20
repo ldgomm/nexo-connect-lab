@@ -38,10 +38,17 @@ sealed interface NotificationProviderDeliveryResult {
     data class PermanentFailure(
         val errorCode: NotificationFailureCode,
         val diagnostic: NotificationDeliveryDiagnostic,
+        val invalidTokenVersion: Long? = null,
     ) : NotificationProviderDeliveryResult {
         init {
             require(errorCode in PERMANENT_NOTIFICATION_FAILURE_CODES) {
                 "Permanent provider delivery requires a permanent failure code"
+            }
+            require(invalidTokenVersion == null || invalidTokenVersion >= 1) {
+                "invalidTokenVersion must be positive"
+            }
+            require(invalidTokenVersion == null || errorCode == NotificationFailureCode.REGISTRATION_REVOKED) {
+                "Only an invalid registration may request token retirement"
             }
         }
     }

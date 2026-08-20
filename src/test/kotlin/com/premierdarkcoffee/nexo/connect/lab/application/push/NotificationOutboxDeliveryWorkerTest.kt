@@ -91,15 +91,86 @@ class NotificationOutboxDeliveryWorkerTest {
         assertIs<MarkNotificationDeliveredRequest>(repository.markDeliveredRequest)
     }
 
+    @Test
+    fun `invalid current token is retired before its intent becomes dead letter`() {
+        val repository = RecordingOutboxRepository(claimedIntent())
+        var retirement: RetireInvalidPushRegistrationRequest? = null
+        val worker = worker(
+            repository = repository,
+            provider = NotificationProvider {
+                NotificationProviderDeliveryResult.PermanentFailure(
+                    errorCode = NotificationFailureCode.REGISTRATION_REVOKED,
+                    diagnostic = NotificationDeliveryDiagnostic.INVALID_REGISTRATION,
+                    invalidTokenVersion = 7,
+                )
+            },
+            invalidRegistrationRetirer = InvalidPushRegistrationRetirer { request ->
+                retirement = request
+                InvalidPushRegistrationRetirementResult.Retired
+            },
+        )
+
+        assertEquals(NotificationDeliveryRunSummary(1, 0, 0, 1, 0), worker.runOnce())
+        assertEquals(7, retirement?.expectedTokenVersion)
+        assertEquals("push-registration-1", retirement?.intent?.registrationRef)
+        assertEquals(NotificationOutboxStatus.DEAD_LETTER, repository.intent.status)
+        assertEquals(NotificationFailureCode.REGISTRATION_REVOKED, repository.intent.lastErrorCode)
+    }
+
+    @Test
+    fun `rotation that wins an invalid-token race schedules retry for the replacement token`() {
+        val repository = RecordingOutboxRepository(claimedIntent())
+        val worker = worker(
+            repository = repository,
+            provider = NotificationProvider {
+                NotificationProviderDeliveryResult.PermanentFailure(
+                    errorCode = NotificationFailureCode.REGISTRATION_REVOKED,
+                    diagnostic = NotificationDeliveryDiagnostic.INVALID_REGISTRATION,
+                    invalidTokenVersion = 1,
+                )
+            },
+            invalidRegistrationRetirer = InvalidPushRegistrationRetirer {
+                InvalidPushRegistrationRetirementResult.TokenRotated
+            },
+        )
+
+        assertEquals(NotificationDeliveryRunSummary(1, 0, 1, 0, 0), worker.runOnce())
+        assertEquals(NotificationOutboxStatus.RETRY_PENDING, repository.intent.status)
+        assertEquals(NotificationFailureCode.PROVIDER_UNAVAILABLE, repository.intent.lastErrorCode)
+        assertNull(repository.deadLetterRequest)
+    }
+
+    @Test
+    fun `retirement outage defers the lease instead of dropping invalid-token cleanup`() {
+        val repository = RecordingOutboxRepository(claimedIntent())
+        val worker = worker(
+            repository = repository,
+            provider = NotificationProvider {
+                NotificationProviderDeliveryResult.PermanentFailure(
+                    errorCode = NotificationFailureCode.REGISTRATION_REVOKED,
+                    diagnostic = NotificationDeliveryDiagnostic.INVALID_REGISTRATION,
+                    invalidTokenVersion = 1,
+                )
+            },
+        )
+
+        assertEquals(NotificationDeliveryRunSummary(1, 0, 0, 0, 1), worker.runOnce())
+        assertEquals(NotificationOutboxStatus.CLAIMED, repository.intent.status)
+        assertNull(repository.deadLetterRequest)
+        assertNull(repository.recordFailureRequest)
+    }
+
     private fun worker(
         repository: RecordingOutboxRepository,
         provider: NotificationProvider,
+        invalidRegistrationRetirer: InvalidPushRegistrationRetirer = InvalidPushRegistrationRetirer.UNAVAILABLE,
         observer: NotificationDeliveryObserver = NotificationDeliveryObserver.NOOP,
     ): NotificationOutboxDeliveryWorker = NotificationOutboxDeliveryWorker(
         repository = repository,
         providers = mapOf(PushProvider.APNS to provider),
         leaseOwner = LEASE_OWNER,
         clock = Clock.fixed(SETTLEMENT_TIME, ZoneOffset.UTC),
+        invalidRegistrationRetirer = invalidRegistrationRetirer,
         observer = observer,
     )
 

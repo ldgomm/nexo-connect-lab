@@ -1,8 +1,8 @@
 package com.premierdarkcoffee.nexo.connect.lab.infrastructure.config
 
-import io.ktor.server.application.*
-import io.ktor.server.config.*
-import io.ktor.util.*
+import io.ktor.server.application.Application
+import io.ktor.server.config.ApplicationConfig
+import io.ktor.util.AttributeKey
 
 enum class ConnectLabEnvironment {
     LOCAL,
@@ -45,6 +45,7 @@ data class ConnectLabConfig(
     val e2eeClaim: Boolean,
     val nexoDbDirectAccess: Boolean,
     val databaseLifecycleEnabled: Boolean,
+    val notificationDeliveryEnabled: Boolean,
 )
 
 object ConnectLabConfigLoader {
@@ -53,17 +54,16 @@ object ConnectLabConfigLoader {
             source.propertyOrNull(path)?.getString()?.trim()?.takeIf(String::isNotEmpty)
                 ?: error("Missing required configuration: $path")
 
-        fun strictBoolean(path: String): Boolean =
-            required(path).toBooleanStrictOrNull()
-                ?: error("Configuration must be true or false: $path")
+        fun strictBoolean(path: String): Boolean = required(path).toBooleanStrictOrNull()
+            ?: error("Configuration must be true or false: $path")
 
         val config =
             ConnectLabConfig(
                 serviceName = required("nexoConnectLab.serviceName"),
                 environment = ConnectLabEnvironment.parse(required("nexoConnectLab.environment")),
                 httpPort =
-                    required("nexoConnectLab.httpPort").toIntOrNull()
-                        ?: error("Configuration must be an integer: nexoConnectLab.httpPort"),
+                required("nexoConnectLab.httpPort").toIntOrNull()
+                    ?: error("Configuration must be an integer: nexoConnectLab.httpPort"),
                 composeProject = required("nexoConnectLab.composeProject"),
                 databaseName = required("nexoConnectLab.databaseName"),
                 redisNamespace = required("nexoConnectLab.redisNamespace"),
@@ -74,6 +74,7 @@ object ConnectLabConfigLoader {
                 e2eeClaim = strictBoolean("nexoConnectLab.e2eeClaim"),
                 nexoDbDirectAccess = strictBoolean("nexoConnectLab.nexoDbDirectAccess"),
                 databaseLifecycleEnabled = strictBoolean("nexoConnectLab.databaseLifecycleEnabled"),
+                notificationDeliveryEnabled = strictBoolean("nexoConnectLab.notificationDeliveryEnabled"),
             )
 
         require(config.serviceName == "nexo-connect-lab") {
@@ -108,6 +109,9 @@ object ConnectLabConfigLoader {
         }
         require(!config.nexoDbDirectAccess) {
             "Direct access to Nexo databases is forbidden"
+        }
+        require(!config.notificationDeliveryEnabled || config.databaseLifecycleEnabled) {
+            "Notification delivery requires the PostgreSQL lifecycle"
         }
 
         return config

@@ -10,6 +10,14 @@ import com.premierdarkcoffee.nexo.connect.lab.application.persistence.Notificati
 import com.premierdarkcoffee.nexo.connect.lab.application.persistence.PutPushNotificationPreferenceRequest
 import com.premierdarkcoffee.nexo.connect.lab.application.persistence.PutPushNotificationPreferenceResult
 import com.premierdarkcoffee.nexo.connect.lab.application.persistence.RecordNotificationFailureRequest
+import com.premierdarkcoffee.nexo.connect.lab.application.push.NotificationDeliveryDiagnostic
+import com.premierdarkcoffee.nexo.connect.lab.application.push.NotificationDeliveryRunSummary
+import com.premierdarkcoffee.nexo.connect.lab.application.push.NotificationOutboxDeliveryWorker
+import com.premierdarkcoffee.nexo.connect.lab.application.push.NotificationProvider
+import com.premierdarkcoffee.nexo.connect.lab.application.push.NotificationProviderDeliveryResult
+import com.premierdarkcoffee.nexo.connect.lab.application.realtime.DurableConversationCatchUp
+import com.premierdarkcoffee.nexo.connect.lab.application.realtime.DurableConversationCatchUpResult
+import com.premierdarkcoffee.nexo.connect.lab.application.realtime.LoadDurableConversationCatchUpRequest
 import com.premierdarkcoffee.nexo.connect.lab.domain.identity.ConnectActorType
 import com.premierdarkcoffee.nexo.connect.lab.domain.identity.ConnectPrincipal
 import com.premierdarkcoffee.nexo.connect.lab.domain.message.ClientMessageIdentity
@@ -20,11 +28,14 @@ import com.premierdarkcoffee.nexo.connect.lab.domain.push.NotificationFailureCod
 import com.premierdarkcoffee.nexo.connect.lab.domain.push.NotificationLockScreenPrivacy
 import com.premierdarkcoffee.nexo.connect.lab.domain.push.NotificationOutboxStatus
 import com.premierdarkcoffee.nexo.connect.lab.domain.push.NotificationQuietMode
+import com.premierdarkcoffee.nexo.connect.lab.domain.push.PushProvider
 import com.zaxxer.hikari.HikariDataSource
 import java.sql.SQLException
 import java.sql.Timestamp
+import java.time.Clock
 import java.time.Duration
 import java.time.Instant
+import java.time.ZoneOffset
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -470,6 +481,159 @@ class PostgresNotificationOutboxRepositoryIntegrationTest {
         assertEquals(NotificationOutboxStatus.DEAD_LETTER, dead.status)
         assertEquals(NotificationFailureCode.PROVIDER_UNAVAILABLE, dead.lastErrorCode)
         assertEquals(1, scalarLong("SELECT count(*) FROM connect.notification_outbox WHERE status = 'DEAD_LETTER'"))
+    }
+
+    @Test
+    fun `invalid current token is cryptographically erased before dead letter settlement`() {
+        seedPushDevice("client-registration-1", "client-subject-1", "CLIENT", "NEXO_CLIENT_IOS", null, null, 'a')
+        assertIs<DurableTextRepositoryResult.Committed>(messageRepository.persist(messageRequest()))
+        val now = BASE_TIME.plusSeconds(2)
+        val worker =
+            NotificationOutboxDeliveryWorker(
+                repository = outboxRepository,
+                providers =
+                mapOf(
+                    PushProvider.APNS to
+                        NotificationProvider {
+                            NotificationProviderDeliveryResult.PermanentFailure(
+                                errorCode = NotificationFailureCode.REGISTRATION_REVOKED,
+                                diagnostic = NotificationDeliveryDiagnostic.INVALID_REGISTRATION,
+                                invalidTokenVersion = 1,
+                            )
+                        },
+                ),
+                leaseOwner = "invalid-token-worker",
+                clock = Clock.fixed(now, ZoneOffset.UTC),
+                invalidRegistrationRetirer = PostgresInvalidPushRegistrationRetirer(appDataSource),
+            )
+
+        assertEquals(NotificationDeliveryRunSummary(1, 0, 0, 1, 0), worker.runOnce())
+        assertEquals(
+            1,
+            scalarLong(
+                "SELECT count(*) FROM connect.push_device_registrations " +
+                    "WHERE registration_ref = 'client-registration-1' AND status = 'REVOKED' " +
+                    "AND token_fingerprint IS NULL AND token_ciphertext IS NULL " +
+                    "AND token_nonce IS NULL AND token_key_version IS NULL AND revoked_at IS NOT NULL",
+            ),
+        )
+        assertEquals(
+            1,
+            scalarLong(
+                "SELECT count(*) FROM connect.notification_outbox " +
+                    "WHERE status = 'DEAD_LETTER' AND last_error_code = 'REGISTRATION_REVOKED'",
+            ),
+        )
+    }
+
+    @Test
+    fun `outage rotation and reconnect preserve one durable message and one catch up event`() {
+        seedPushDevice("client-registration-1", "client-subject-1", "CLIENT", "NEXO_CLIENT_IOS", null, null, 'b')
+        assertIs<DurableTextRepositoryResult.Committed>(messageRepository.persist(messageRequest()))
+        assertIs<DurableTextRepositoryResult.ReplayExisting>(
+            messageRepository.persist(messageRequest(serverMessageRef = "server-message-duplicate")),
+        )
+
+        val outageWorker =
+            deliveryWorker(BASE_TIME.plusSeconds(2)) {
+                NotificationProviderDeliveryResult.RetryableFailure(
+                    errorCode = NotificationFailureCode.PROVIDER_UNAVAILABLE,
+                    diagnostic = NotificationDeliveryDiagnostic.PROVIDER_UNAVAILABLE,
+                )
+            }
+        assertEquals(NotificationDeliveryRunSummary(1, 0, 1, 0, 0), outageWorker.runOnce())
+        assertEquals(1, scalarLong("SELECT count(*) FROM connect.messages"))
+        assertEquals(1, scalarLong("SELECT count(*) FROM connect.notification_outbox"))
+
+        val rotationRaceWorker =
+            deliveryWorker(BASE_TIME.plusSeconds(33)) {
+                rotateSeededRegistrationToVersionTwo()
+                NotificationProviderDeliveryResult.PermanentFailure(
+                    errorCode = NotificationFailureCode.REGISTRATION_REVOKED,
+                    diagnostic = NotificationDeliveryDiagnostic.INVALID_REGISTRATION,
+                    invalidTokenVersion = 1,
+                )
+            }
+        assertEquals(NotificationDeliveryRunSummary(1, 0, 1, 0, 0), rotationRaceWorker.runOnce())
+        assertEquals(
+            1,
+            scalarLong(
+                "SELECT count(*) FROM connect.push_device_registrations " +
+                    "WHERE registration_ref = 'client-registration-1' AND status = 'ACTIVE' AND token_version = 2",
+            ),
+        )
+
+        val recoveredWorker =
+            deliveryWorker(BASE_TIME.plusSeconds(94)) { NotificationProviderDeliveryResult.Delivered() }
+        assertEquals(NotificationDeliveryRunSummary(1, 1, 0, 0, 0), recoveredWorker.runOnce())
+        assertEquals(
+            1,
+            scalarLong(
+                "SELECT count(*) FROM connect.notification_outbox " +
+                    "WHERE status = 'DELIVERED' AND attempt_count = 3",
+            ),
+        )
+
+        val catchUp = DurableConversationCatchUp(PostgresDurableMessageHistoryRepository(appDataSource))
+        val recovered =
+            assertIs<DurableConversationCatchUpResult.Loaded>(
+                catchUp.load(
+                    LoadDurableConversationCatchUpRequest(
+                        principal = CLIENT_PRINCIPAL,
+                        conversationRef = "conversation-1",
+                        afterSequence = 0,
+                        snapshotLastMessageSequence = 1,
+                    ),
+                ),
+            )
+        assertEquals(listOf("server-message-1"), recovered.events.map { it.serverMessageRef })
+        val alreadyCaughtUp =
+            assertIs<DurableConversationCatchUpResult.Loaded>(
+                catchUp.load(
+                    LoadDurableConversationCatchUpRequest(
+                        principal = CLIENT_PRINCIPAL,
+                        conversationRef = "conversation-1",
+                        afterSequence = 1,
+                        snapshotLastMessageSequence = 1,
+                    ),
+                ),
+            )
+        assertTrue(alreadyCaughtUp.events.isEmpty())
+    }
+
+    private fun deliveryWorker(now: Instant, provider: NotificationProvider): NotificationOutboxDeliveryWorker =
+        NotificationOutboxDeliveryWorker(
+            repository = outboxRepository,
+            providers =
+            mapOf(
+                PushProvider.APNS to provider,
+            ),
+            leaseOwner = "offline-recovery-worker",
+            clock = Clock.fixed(now, ZoneOffset.UTC),
+            invalidRegistrationRetirer = PostgresInvalidPushRegistrationRetirer(appDataSource),
+        )
+
+    private fun rotateSeededRegistrationToVersionTwo() {
+        adminDataSource.connection.use { connection ->
+            connection.prepareStatement(
+                """
+                UPDATE connect.push_device_registrations
+                SET token_fingerprint = ?, token_ciphertext = ?, token_nonce = ?,
+                    token_key_version = 1, token_version = 2,
+                    rotated_at = ?, updated_at = ?, version = version + 1
+                WHERE registration_ref = 'client-registration-1'
+                  AND status = 'ACTIVE'
+                  AND token_version = 1
+                """.trimIndent(),
+            ).use { statement ->
+                statement.setString(1, "c".repeat(64))
+                statement.setBytes(2, ByteArray(32) { 3 })
+                statement.setBytes(3, ByteArray(12) { 4 })
+                statement.setTimestamp(4, Timestamp.from(BASE_TIME.plusSeconds(33)))
+                statement.setTimestamp(5, Timestamp.from(BASE_TIME.plusSeconds(33)))
+                assertEquals(1, statement.executeUpdate())
+            }
+        }
     }
 
     private fun claimRequest(owner: String, now: Instant, durationSeconds: Long) = ClaimNotificationOutboxRequest(

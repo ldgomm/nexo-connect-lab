@@ -193,5 +193,6 @@ class ReadinessRoutesTest {
         "nexoConnectLab.e2eeClaim" to "false",
         "nexoConnectLab.nexoDbDirectAccess" to "false",
         "nexoConnectLab.databaseLifecycleEnabled" to "true",
+        "nexoConnectLab.notificationDeliveryEnabled" to "false",
     )
 }

@@ -129,6 +129,23 @@ class ApnsSandboxNotificationProviderTest {
     }
 
     @Test
+    fun `invalid APNs token carries the exact resolved token version for safe retirement`() {
+        val provider = provider(
+            ApnsSandboxTransport {
+                ApnsSandboxTransportResult.Response(
+                    ApnsSandboxResponse(410, "{\"reason\":\"Unregistered\"}".toByteArray()),
+                )
+            },
+        )
+
+        val failure =
+            assertIs<NotificationProviderDeliveryResult.PermanentFailure>(provider.deliver(intent()))
+
+        assertEquals(NotificationDeliveryDiagnostic.INVALID_REGISTRATION, failure.diagnostic)
+        assertEquals(TOKEN_VERSION, failure.invalidTokenVersion)
+    }
+
+    @Test
     fun `inactive registration is uniformly rejected without requesting provider credentials`() {
         var authorizationRequested = false
         val provider = ApnsSandboxNotificationProvider(
@@ -136,7 +153,7 @@ class ApnsSandboxNotificationProviderTest {
             tokenResolver = object : PushDeliveryTokenResolver {
                 override fun <T> withActiveToken(
                     intent: NotificationOutboxIntent,
-                    action: (PushTokenSecret) -> T,
+                    action: (PushTokenSecret, Long) -> T,
                 ): PushDeliveryTokenResolution<T> = PushDeliveryTokenResolution.NotFoundOrDenied
             },
             authorizationSource = ApnsAuthorizationSource {
@@ -177,9 +194,9 @@ class ApnsSandboxNotificationProviderTest {
     private class FixedTokenResolver(private val token: ByteArray) : PushDeliveryTokenResolver {
         override fun <T> withActiveToken(
             intent: NotificationOutboxIntent,
-            action: (PushTokenSecret) -> T,
+            action: (PushTokenSecret, Long) -> T,
         ): PushDeliveryTokenResolution<T> = PushTokenSecret.fromBytes(token).use { secret ->
-            PushDeliveryTokenResolution.Resolved(action(secret))
+            PushDeliveryTokenResolution.Resolved(action(secret, TOKEN_VERSION))
         }
     }
 
@@ -209,6 +226,7 @@ class ApnsSandboxNotificationProviderTest {
         const val AUTHORIZATION = "provider-jwt-secret-value"
         const val CLIENT_TOPIC = "com.nexo.client"
         const val PRIVATE_BODY_SENTINEL = "private message body"
+        const val TOKEN_VERSION = 1L
         val NOW: Instant = Instant.parse("2026-08-20T16:00:00Z")
 
         fun intent(): NotificationOutboxIntent = NotificationOutboxIntent(

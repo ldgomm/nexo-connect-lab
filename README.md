@@ -128,3 +128,11 @@ muted device creates no outbox intent; generic lock-screen alerts use fixed
 localisation keys without message or identity previews, while hidden and quiet
 choices are background-only. Badge behaviour is explicit, and the privacy-safe
 presentation is frozen into the durable intent before any APNs retry.
+
+Notification delivery now has an opt-in application lifecycle with one bounded
+fixed-delay worker. Provider outages preserve PostgreSQL truth and resume from
+the same outbox intent. APNs invalid-token responses retire only the exact token
+version that was sent and cryptographically erase it; a concurrent rotation
+wins and schedules delivery to the replacement token. Offline reconnect uses
+the existing authorised PostgreSQL catch-up and produces no durable or visible
+duplicates.

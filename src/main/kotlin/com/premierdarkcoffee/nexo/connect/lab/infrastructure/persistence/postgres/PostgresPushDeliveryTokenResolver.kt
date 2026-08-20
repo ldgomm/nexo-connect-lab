@@ -15,12 +15,12 @@ class PostgresPushDeliveryTokenResolver(
 ) : PushDeliveryTokenResolver {
     override fun <T> withActiveToken(
         intent: NotificationOutboxIntent,
-        action: (PushTokenSecret) -> T,
+        action: (PushTokenSecret, tokenVersion: Long) -> T,
     ): PushDeliveryTokenResolution<T> = dataSource.connection.use { connection ->
         connection.isReadOnly = true
         connection.prepareStatement(
             """
-            SELECT token_fingerprint, token_ciphertext, token_nonce, token_key_version
+            SELECT token_fingerprint, token_ciphertext, token_nonce, token_key_version, token_version
             FROM connect.push_device_registrations
             WHERE registration_ref = ?
               AND platform_scope_ref = ?
@@ -58,7 +58,9 @@ class PostgresPushDeliveryTokenResolver(
                         val revealed = tokenCodec.revealForDelivery(protectedToken, intent.protectionContext())
                         try {
                             PushTokenSecret.fromBytes(revealed).use { token ->
-                                PushDeliveryTokenResolution.Resolved(action(token))
+                                PushDeliveryTokenResolution.Resolved(
+                                    action(token, resultSet.getLong("token_version")),
+                                )
                             }
                         } finally {
                             revealed.fill(0)

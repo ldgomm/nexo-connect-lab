@@ -12,6 +12,6 @@ sealed interface PushDeliveryTokenResolution<out T> {
 interface PushDeliveryTokenResolver {
     fun <T> withActiveToken(
         intent: NotificationOutboxIntent,
-        action: (PushTokenSecret) -> T,
+        action: (PushTokenSecret, tokenVersion: Long) -> T,
     ): PushDeliveryTokenResolution<T>
 }

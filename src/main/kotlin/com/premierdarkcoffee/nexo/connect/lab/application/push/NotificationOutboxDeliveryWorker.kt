@@ -38,6 +38,8 @@ class NotificationOutboxDeliveryWorker(
     private val leaseDuration: Duration = Duration.ofSeconds(30),
     private val claimLimit: Int = 25,
     private val retryPolicy: NotificationRetryPolicy = BoundedExponentialNotificationRetryPolicy(),
+    private val invalidRegistrationRetirer: InvalidPushRegistrationRetirer =
+        InvalidPushRegistrationRetirer.UNAVAILABLE,
     private val observer: NotificationDeliveryObserver = NotificationDeliveryObserver.NOOP,
 ) {
     private val providers = providers.toMap()
@@ -129,20 +131,64 @@ class NotificationOutboxDeliveryWorker(
                 ),
             )
 
-            is NotificationProviderDeliveryResult.PermanentFailure -> repository.deadLetter(
-                DeadLetterNotificationRequest(
-                    intentRef = intent.intentRef,
-                    leaseOwner = leaseOwner,
-                    expectedVersion = intent.version,
-                    now = now,
-                    errorCode = delivery.errorCode,
-                ),
-            )
+            is NotificationProviderDeliveryResult.PermanentFailure ->
+                settlePermanentFailure(intent, delivery, now)
         }
         mutation.toSettlement()
     } catch (_: Exception) {
         NotificationDeliverySettlement.LEASE_DEFERRED
     }
+
+    private fun settlePermanentFailure(
+        intent: NotificationOutboxIntent,
+        delivery: NotificationProviderDeliveryResult.PermanentFailure,
+        now: java.time.Instant,
+    ): NotificationOutboxMutationResult {
+        val invalidTokenVersion = delivery.invalidTokenVersion
+            ?: return deadLetter(intent, delivery.errorCode, now)
+
+        return when (
+            invalidRegistrationRetirer.retire(
+                RetireInvalidPushRegistrationRequest(
+                    intent = intent,
+                    expectedTokenVersion = invalidTokenVersion,
+                    now = now,
+                ),
+            )
+        ) {
+            InvalidPushRegistrationRetirementResult.Retired,
+            InvalidPushRegistrationRetirementResult.NotFoundOrDenied,
+            -> deadLetter(intent, delivery.errorCode, now)
+
+            InvalidPushRegistrationRetirementResult.TokenRotated -> {
+                val retryCode = NotificationFailureCode.PROVIDER_UNAVAILABLE
+                repository.recordFailure(
+                    RecordNotificationFailureRequest(
+                        intentRef = intent.intentRef,
+                        leaseOwner = leaseOwner,
+                        expectedVersion = intent.version,
+                        now = now,
+                        retryAt = now.plus(retryPolicy.delayFor(retryCode, intent.attemptCount)),
+                        errorCode = retryCode,
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun deadLetter(
+        intent: NotificationOutboxIntent,
+        errorCode: NotificationFailureCode,
+        now: java.time.Instant,
+    ): NotificationOutboxMutationResult = repository.deadLetter(
+        DeadLetterNotificationRequest(
+            intentRef = intent.intentRef,
+            leaseOwner = leaseOwner,
+            expectedVersion = intent.version,
+            now = now,
+            errorCode = errorCode,
+        ),
+    )
 
     private fun NotificationOutboxMutationResult.toSettlement(): NotificationDeliverySettlement = when (this) {
         NotificationOutboxMutationResult.NotFoundOrDenied -> NotificationDeliverySettlement.LEASE_DEFERRED

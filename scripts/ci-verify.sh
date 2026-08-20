@@ -133,6 +133,7 @@ required_files=(
     docs/architecture/CONNECT_22_DURABLE_NOTIFICATION_OUTBOX.md
     docs/architecture/CONNECT_23_APNS_SANDBOX_DELIVERY.md
     docs/architecture/CONNECT_24_PUSH_PRIVACY_AND_MUTE_POLICY.md
+    docs/architecture/CONNECT_25_OFFLINE_PUSH_RECOVERY.md
     docs/architecture/connect-multi-instance-fanout-contract.properties
     docs/architecture/connect-redis-ephemeral-boundary.properties
     docs/architecture/connect-realtime-fanout.properties
@@ -147,6 +148,7 @@ required_files=(
     docs/architecture/connect-durable-notification-outbox.properties
     docs/architecture/connect-apns-sandbox-delivery.properties
     docs/architecture/connect-push-privacy-and-mute-policy.properties
+    docs/architecture/connect-offline-push-recovery.properties
     docs/governance/CONNECT_PHASE_GOVERNANCE.md
     docs/governance/INTELLIJ_FORMATTING.md
     docs/governance/SEMANTIC_ACCEPTANCE_GATES.md
@@ -185,6 +187,7 @@ required_files=(
     scripts/verify-durable-notification-outbox.sh
     scripts/verify-apns-sandbox-delivery.sh
     scripts/verify-push-privacy-and-mute-policy.sh
+    scripts/verify-offline-push-recovery.sh
     scripts/verify-formatting-convergence.sh
     scripts/verify-multi-instance-fanout-architecture.sh
     scripts/verify-multi-instance-realtime-fanout.sh
@@ -204,6 +207,8 @@ required_files=(
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/persistence/PushNotificationPreferenceRepository.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/push/NotificationDelivery.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/push/NotificationOutboxDeliveryWorker.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/push/NotificationDeliveryRuntime.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/push/InvalidPushRegistrationRetirement.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/push/PushDeliveryTokenResolver.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/push/PushNotificationPolicy.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/ConversationSubscriptionAuthorizer.kt
@@ -238,8 +243,10 @@ required_files=(
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresPushDeviceRegistry.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresNotificationOutboxRepository.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresPushDeliveryTokenResolver.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresInvalidPushRegistrationRetirer.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresPushNotificationPreferenceRepository.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/push/ProtectedPushTokenCodec.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/push/NotificationDeliveryLifecycle.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/push/apns/ApnsSandboxConfiguration.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/push/apns/ApnsProviderTokenSource.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/push/apns/ApnsSandboxTransport.kt
@@ -321,6 +328,7 @@ required_files=(
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/push/ProtectedPushTokenCodecTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/push/NotificationOutboxIntentTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/push/NotificationOutboxDeliveryWorkerTest.kt
+    src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/push/NotificationDeliveryRuntimeTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/push/apns/ApnsResponseClassifierTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/push/apns/ApnsProviderTokenSourceTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/push/apns/ApnsSandboxNotificationProviderTest.kt
@@ -439,6 +447,7 @@ bash -n scripts/verify-protected-push-device-registry.sh
 bash -n scripts/verify-durable-notification-outbox.sh
 bash -n scripts/verify-apns-sandbox-delivery.sh
 bash -n scripts/verify-push-privacy-and-mute-policy.sh
+bash -n scripts/verify-offline-push-recovery.sh
 bash -n scripts/verify-formatting-convergence.sh
 bash -n scripts/verify-multi-instance-fanout-architecture.sh
 bash -n scripts/verify-multi-instance-realtime-fanout.sh
@@ -504,6 +513,9 @@ printf 'APNS_SANDBOX_DELIVERY_CONTRACT_GATE=PASS\n'
 
 ./scripts/verify-push-privacy-and-mute-policy.sh
 printf 'PUSH_PRIVACY_AND_MUTE_POLICY_CONTRACT_GATE=PASS\n'
+
+./scripts/verify-offline-push-recovery.sh
+printf 'OFFLINE_PUSH_RECOVERY_CONTRACT_GATE=PASS\n'
 
 CONNECT_C5_MIGRATION_DIRECTORY="src/main/resources/db/migration"
 CONNECT_C5_MIGRATION_FILE_COUNT="$(
@@ -820,6 +832,8 @@ for exact_env in \
     'CONNECT_LAB_CALLS_ENABLED=false' \
     'CONNECT_LAB_E2EE_CLAIM=false' \
     'CONNECT_LAB_DATABASE_LIFECYCLE_ENABLED=true' \
+    'CONNECT_LAB_NOTIFICATION_DELIVERY_ENABLED=false' \
+    'CONNECT_LAB_PUSH_TOKEN_KEY_VERSION=1' \
     'CONNECT_LAB_POSTGRES_APP_USER=nexo_connect_lab_app' \
     'CONNECT_LAB_POSTGRES_APP_MAX_POOL_SIZE=12' \
     'CONNECT_LAB_REDIS_APP_USER=nexo_connect_lab_app' \
@@ -835,6 +849,25 @@ for exact_env in \
         exit 23
     fi
 done
+
+for push_key in \
+    CONNECT_LAB_PUSH_TOKEN_ENCRYPTION_KEY_B64 \
+    CONNECT_LAB_PUSH_TOKEN_FINGERPRINT_KEY_B64; do
+    push_key_value="$(
+        awk -F= -v target="$push_key" '
+            $1 == target { count++; value = substr($0, index($0, "=") + 1) }
+            END { if (count != 1) exit 2; print value }
+        ' "$ENV_FILE"
+    )" || {
+        printf 'ERROR=LOCAL_ENV_PUSH_TOKEN_KEY_CONTRACT_MISMATCH\n' >&2
+        exit 23
+    }
+    if [[ "$(printf '%s' "$push_key_value" | openssl base64 -d -A 2>/dev/null | wc -c | tr -d '[:space:]')" != "32" ]]; then
+        printf 'ERROR=LOCAL_ENV_PUSH_TOKEN_KEY_CONTRACT_MISMATCH\n' >&2
+        exit 23
+    fi
+done
+unset push_key push_key_value
 
 business_token="$(awk -F= '$1 == "CONNECT_LAB_SYNTHETIC_BUSINESS_TOKEN" { print substr($0, index($0, "=") + 1); count++ } END { if (count != 1) exit 1 }' "$ENV_FILE")" || {
     printf 'ERROR=LOCAL_ENV_SYNTHETIC_IDENTITY_CONTRACT_MISMATCH\n' >&2

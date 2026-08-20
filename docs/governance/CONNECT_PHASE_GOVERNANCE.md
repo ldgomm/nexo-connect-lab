@@ -5,11 +5,11 @@
 - Programme: `NEXO_CONNECT_LAB`
 - Repository: `connect-lab`
 - Branch: `main`
-- Accepted phase: `CONNECT.23`
-- Accepted HEAD: `cf095edee3b9990175d6fc496cb5dda00a1a1d42`
+- Accepted phase: `CONNECT.24`
+- Accepted HEAD: `a4fc29473431fa0c2a8f97ac358ff34201f798a1`
 - Immutable user baseline: `558d702bd5e7729721cde71d0e3080513798dcdd`
-- Active phase: `CONNECT.24`
-- Next phase after acceptance: `CONNECT.25`
+- Active phase: `CONNECT.25`
+- Next phase after acceptance: `CONNECT.26`
 
 `CONNECT.07` is the accepted governance commit `e330359...`; its historical
 subject used the temporary label `[CONNECT.01]`. The hash is preserved and the
@@ -148,6 +148,13 @@ Mute suppresses creation of the device's outbox intent; generic alerts use
 fixed localisation keys without body or identity arguments, while hidden and
 quiet choices are background-only. Badge behaviour is explicit and the
 privacy-safe presentation is frozen in the outbox for every later retry.
+
+`CONNECT.25` installs the opt-in notification worker lifecycle, contains failed
+polls and closes it before PostgreSQL shutdown. Invalid APNs responses retire
+only the exact resolved token version and erase its protected material; a
+concurrent rotation wins and returns the intent to bounded retry. Provider
+outage, rotation and reconnect retain one durable message, one outbox intent
+and exactly one authorised PostgreSQL catch-up event.
 
 The empty `docker-compose.watch.yml` is tracked by the accepted user baseline.
 Later phase commits must preserve it byte-for-byte unless the user explicitly
