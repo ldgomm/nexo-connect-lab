@@ -122,3 +122,9 @@ to the bounded durable retry path; permanent rejection is dead-lettered.
 Typed observability contains no device token, provider credential, response
 body or message body. Runtime scheduling and invalid-token cleanup remain in
 CONNECT.25.
+
+Push presentation is now decided per conversation and registered device. A
+muted device creates no outbox intent; generic lock-screen alerts use fixed
+localisation keys without message or identity previews, while hidden and quiet
+choices are background-only. Badge behaviour is explicit, and the privacy-safe
+presentation is frozen into the durable intent before any APNs retry.

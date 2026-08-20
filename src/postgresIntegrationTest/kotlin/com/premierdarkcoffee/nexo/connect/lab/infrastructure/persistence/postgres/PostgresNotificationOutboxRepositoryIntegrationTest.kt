@@ -3,16 +3,23 @@ package com.premierdarkcoffee.nexo.connect.lab.infrastructure.persistence.postgr
 import com.premierdarkcoffee.nexo.connect.lab.application.persistence.ClaimNotificationOutboxRequest
 import com.premierdarkcoffee.nexo.connect.lab.application.persistence.DurableTextRepositoryResult
 import com.premierdarkcoffee.nexo.connect.lab.application.persistence.DurableTextWriteRequest
+import com.premierdarkcoffee.nexo.connect.lab.application.persistence.GetPushNotificationPreferenceRequest
+import com.premierdarkcoffee.nexo.connect.lab.application.persistence.GetPushNotificationPreferenceResult
 import com.premierdarkcoffee.nexo.connect.lab.application.persistence.MarkNotificationDeliveredRequest
 import com.premierdarkcoffee.nexo.connect.lab.application.persistence.NotificationOutboxMutationResult
+import com.premierdarkcoffee.nexo.connect.lab.application.persistence.PutPushNotificationPreferenceRequest
+import com.premierdarkcoffee.nexo.connect.lab.application.persistence.PutPushNotificationPreferenceResult
 import com.premierdarkcoffee.nexo.connect.lab.application.persistence.RecordNotificationFailureRequest
 import com.premierdarkcoffee.nexo.connect.lab.domain.identity.ConnectActorType
 import com.premierdarkcoffee.nexo.connect.lab.domain.identity.ConnectPrincipal
 import com.premierdarkcoffee.nexo.connect.lab.domain.message.ClientMessageIdentity
 import com.premierdarkcoffee.nexo.connect.lab.domain.message.SendTextMessageCommand
 import com.premierdarkcoffee.nexo.connect.lab.domain.message.TextMessageBody
+import com.premierdarkcoffee.nexo.connect.lab.domain.push.NotificationBadgeMode
 import com.premierdarkcoffee.nexo.connect.lab.domain.push.NotificationFailureCode
+import com.premierdarkcoffee.nexo.connect.lab.domain.push.NotificationLockScreenPrivacy
 import com.premierdarkcoffee.nexo.connect.lab.domain.push.NotificationOutboxStatus
+import com.premierdarkcoffee.nexo.connect.lab.domain.push.NotificationQuietMode
 import com.zaxxer.hikari.HikariDataSource
 import java.sql.SQLException
 import java.sql.Timestamp
@@ -23,6 +30,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -32,6 +40,7 @@ class PostgresNotificationOutboxRepositoryIntegrationTest {
     private lateinit var appDataSource: HikariDataSource
     private lateinit var messageRepository: PostgresDurableTextRepository
     private lateinit var outboxRepository: PostgresNotificationOutboxRepository
+    private lateinit var preferenceRepository: PostgresPushNotificationPreferenceRepository
 
     @BeforeTest
     fun setUp() {
@@ -39,6 +48,7 @@ class PostgresNotificationOutboxRepositoryIntegrationTest {
         appDataSource = PostgresDataSourceFactory.create(applicationConfig())
         messageRepository = PostgresDurableTextRepository(appDataSource)
         outboxRepository = PostgresNotificationOutboxRepository(appDataSource)
+        preferenceRepository = PostgresPushNotificationPreferenceRepository(appDataSource)
         resetDatabase()
         seedConversation()
     }
@@ -164,6 +174,161 @@ class PostgresNotificationOutboxRepositoryIntegrationTest {
 
         assertEquals(1, scalarLong("SELECT count(*) FROM connect.messages"))
         assertEquals(0, scalarLong("SELECT count(*) FROM connect.notification_outbox"))
+    }
+
+    @Test
+    fun `muted recipient device creates no push intent and ownership is uniformly fenced`() {
+        seedPushDevice("muted-client-registration", "client-subject-1", "CLIENT", "NEXO_CLIENT_IOS", null, null, 'a')
+
+        val created = putPreference(
+            registrationRef = "muted-client-registration",
+            muted = true,
+            lockScreenPrivacy = NotificationLockScreenPrivacy.GENERIC,
+            badgeMode = NotificationBadgeMode.SET_ONE,
+            quietMode = NotificationQuietMode.OFF,
+        )
+        assertTrue(created.created)
+        assertEquals(1L, created.preference.version)
+        assertTrue(created.preference.muted)
+
+        val updated = assertIs<PutPushNotificationPreferenceResult.Updated>(
+            preferenceRepository.put(
+                preferenceRequest(
+                    registrationRef = "muted-client-registration",
+                    muted = true,
+                    lockScreenPrivacy = NotificationLockScreenPrivacy.HIDDEN,
+                    badgeMode = NotificationBadgeMode.UNCHANGED,
+                    quietMode = NotificationQuietMode.ON,
+                    expectedVersion = created.preference.version,
+                ),
+            ),
+        )
+        assertFalse(updated.created)
+        assertEquals(2L, updated.preference.version)
+        assertSame(
+            PutPushNotificationPreferenceResult.NotFoundOrDenied,
+            preferenceRepository.put(
+                preferenceRequest(
+                    registrationRef = "muted-client-registration",
+                    muted = false,
+                    lockScreenPrivacy = NotificationLockScreenPrivacy.GENERIC,
+                    badgeMode = NotificationBadgeMode.SET_ONE,
+                    quietMode = NotificationQuietMode.OFF,
+                    expectedVersion = created.preference.version,
+                ),
+            ),
+        )
+        assertIs<GetPushNotificationPreferenceResult.Found>(
+            preferenceRepository.get(
+                GetPushNotificationPreferenceRequest(
+                    principal = CLIENT_PRINCIPAL,
+                    conversationRef = "conversation-1",
+                    registrationRef = "muted-client-registration",
+                ),
+            ),
+        )
+        assertSame(
+            GetPushNotificationPreferenceResult.NotFoundOrDenied,
+            preferenceRepository.get(
+                GetPushNotificationPreferenceRequest(
+                    principal = BUSINESS_PRINCIPAL,
+                    conversationRef = "conversation-1",
+                    registrationRef = "muted-client-registration",
+                ),
+            ),
+        )
+        assertSame(
+            PutPushNotificationPreferenceResult.NotFoundOrDenied,
+            preferenceRepository.put(
+                PutPushNotificationPreferenceRequest(
+                    principal = BUSINESS_PRINCIPAL,
+                    conversationRef = "conversation-1",
+                    registrationRef = "muted-client-registration",
+                    muted = false,
+                    lockScreenPrivacy = NotificationLockScreenPrivacy.GENERIC,
+                    badgeMode = NotificationBadgeMode.SET_ONE,
+                    quietMode = NotificationQuietMode.OFF,
+                    expectedVersion = updated.preference.version,
+                    now = BASE_TIME.plusSeconds(2),
+                ),
+            ),
+        )
+
+        assertIs<DurableTextRepositoryResult.Committed>(messageRepository.persist(messageRequest()))
+
+        assertEquals(1, scalarLong("SELECT count(*) FROM connect.messages"))
+        assertEquals(0, scalarLong("SELECT count(*) FROM connect.notification_outbox"))
+    }
+
+    @Test
+    fun `per-device privacy badge and quiet choices are frozen into durable intents`() {
+        seedPushDevice("generic-registration", "client-subject-1", "CLIENT", "NEXO_CLIENT_IOS", null, null, 'a')
+        seedPushDevice("hidden-registration", "client-subject-1", "CLIENT", "NEXO_CLIENT_IOS", null, null, 'b')
+        seedPushDevice("quiet-registration", "client-subject-1", "CLIENT", "NEXO_CLIENT_IOS", null, null, 'c')
+
+        putPreference(
+            registrationRef = "generic-registration",
+            muted = false,
+            lockScreenPrivacy = NotificationLockScreenPrivacy.GENERIC,
+            badgeMode = NotificationBadgeMode.SET_ONE,
+            quietMode = NotificationQuietMode.OFF,
+        )
+        putPreference(
+            registrationRef = "hidden-registration",
+            muted = false,
+            lockScreenPrivacy = NotificationLockScreenPrivacy.HIDDEN,
+            badgeMode = NotificationBadgeMode.SET_ONE,
+            quietMode = NotificationQuietMode.OFF,
+        )
+        putPreference(
+            registrationRef = "quiet-registration",
+            muted = false,
+            lockScreenPrivacy = NotificationLockScreenPrivacy.GENERIC,
+            badgeMode = NotificationBadgeMode.SET_ONE,
+            quietMode = NotificationQuietMode.ON,
+        )
+
+        assertSame(
+            PutPushNotificationPreferenceResult.NotFoundOrDenied,
+            preferenceRepository.put(
+                preferenceRequest(
+                    registrationRef = "generic-registration",
+                    muted = true,
+                    lockScreenPrivacy = NotificationLockScreenPrivacy.HIDDEN,
+                    badgeMode = NotificationBadgeMode.UNCHANGED,
+                    quietMode = NotificationQuietMode.ON,
+                    expectedVersion = 0,
+                ),
+            ),
+        )
+
+        assertIs<DurableTextRepositoryResult.Committed>(messageRepository.persist(messageRequest()))
+
+        assertEquals(3, scalarLong("SELECT count(*) FROM connect.notification_outbox"))
+        assertEquals(
+            1,
+            scalarLong(
+                "SELECT count(*) FROM connect.notification_outbox " +
+                    "WHERE registration_ref = 'generic-registration' " +
+                    "AND presentation_mode = 'GENERIC_ALERT' AND badge_mode = 'SET_ONE'",
+            ),
+        )
+        assertEquals(
+            1,
+            scalarLong(
+                "SELECT count(*) FROM connect.notification_outbox " +
+                    "WHERE registration_ref = 'hidden-registration' " +
+                    "AND presentation_mode = 'BACKGROUND_ONLY' AND badge_mode = 'SET_ONE'",
+            ),
+        )
+        assertEquals(
+            1,
+            scalarLong(
+                "SELECT count(*) FROM connect.notification_outbox " +
+                    "WHERE registration_ref = 'quiet-registration' " +
+                    "AND presentation_mode = 'BACKGROUND_ONLY' AND badge_mode = 'UNCHANGED'",
+            ),
+        )
     }
 
     @Test
@@ -314,6 +479,44 @@ class PostgresNotificationOutboxRepositoryIntegrationTest {
         limit = 10,
     )
 
+    private fun putPreference(
+        registrationRef: String,
+        muted: Boolean,
+        lockScreenPrivacy: NotificationLockScreenPrivacy,
+        badgeMode: NotificationBadgeMode,
+        quietMode: NotificationQuietMode,
+    ): PutPushNotificationPreferenceResult.Updated = assertIs(
+        preferenceRepository.put(
+            preferenceRequest(
+                registrationRef = registrationRef,
+                muted = muted,
+                lockScreenPrivacy = lockScreenPrivacy,
+                badgeMode = badgeMode,
+                quietMode = quietMode,
+                expectedVersion = 0,
+            ),
+        ),
+    )
+
+    private fun preferenceRequest(
+        registrationRef: String,
+        muted: Boolean,
+        lockScreenPrivacy: NotificationLockScreenPrivacy,
+        badgeMode: NotificationBadgeMode,
+        quietMode: NotificationQuietMode,
+        expectedVersion: Long,
+    ): PutPushNotificationPreferenceRequest = PutPushNotificationPreferenceRequest(
+        principal = CLIENT_PRINCIPAL,
+        conversationRef = "conversation-1",
+        registrationRef = registrationRef,
+        muted = muted,
+        lockScreenPrivacy = lockScreenPrivacy,
+        badgeMode = badgeMode,
+        quietMode = quietMode,
+        expectedVersion = expectedVersion,
+        now = BASE_TIME.plusSeconds(1),
+    )
+
     private fun resetDatabase() {
         executeAdmin(
             "TRUNCATE connect.notification_outbox, connect.push_device_registrations, connect.message_identities, connect.messages, connect.conversation_participants, connect.conversations RESTART IDENTITY CASCADE",
@@ -355,6 +558,9 @@ class PostgresNotificationOutboxRepositoryIntegrationTest {
         businessScopeRef: String?,
         fingerprintCharacter: Char,
     ) {
+        require(fingerprintCharacter in "0123456789abcdef") {
+            "fingerprintCharacter must be lowercase hexadecimal"
+        }
         adminDataSource.connection.use { connection ->
             connection.prepareStatement(
                 """

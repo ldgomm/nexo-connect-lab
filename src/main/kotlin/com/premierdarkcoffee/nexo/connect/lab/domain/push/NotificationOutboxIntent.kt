@@ -51,6 +51,8 @@ data class NotificationOutboxIntent(
     val createdAt: Instant,
     val updatedAt: Instant,
     val version: Long,
+    val presentationMode: NotificationPresentationMode = NotificationPresentationMode.BACKGROUND_ONLY,
+    val badgeMode: NotificationBadgeMode = NotificationBadgeMode.UNCHANGED,
 ) {
     init {
         requirePushReference(intentRef, "intentRef")

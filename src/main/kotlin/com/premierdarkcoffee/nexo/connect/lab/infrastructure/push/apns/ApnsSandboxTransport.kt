@@ -12,11 +12,17 @@ import java.net.http.HttpTimeoutException
 import java.nio.charset.StandardCharsets
 import java.time.Duration
 
+enum class ApnsPushType(val headerValue: String, val priority: Int) {
+    BACKGROUND("background", 5),
+    ALERT("alert", 10),
+}
+
 class ApnsSandboxRequest internal constructor(
     deviceToken: CharArray,
     authorization: CharArray,
     val topic: String,
     val expirationEpochSecond: Long,
+    val pushType: ApnsPushType,
     payload: ByteArray,
 ) : AutoCloseable {
     private var deviceTokenMaterial: CharArray? = deviceToken.copyOf()
@@ -57,7 +63,8 @@ class ApnsSandboxRequest internal constructor(
     }
 
     override fun toString(): String = "ApnsSandboxRequest(deviceToken=<redacted>, authorization=<redacted>, " +
-        "topic=$topic, expirationEpochSecond=$expirationEpochSecond, " +
+        "topic=$topic, pushType=${pushType.headerValue}, priority=${pushType.priority}, " +
+        "expirationEpochSecond=$expirationEpochSecond, " +
         "payloadBytes=${payloadMaterial?.size ?: 0})"
 
     private fun Char.isHexDigit(): Boolean = this in '0'..'9' || this in 'a'..'f' || this in 'A'..'F'
@@ -146,8 +153,8 @@ class JavaNetApnsSandboxTransport(
                         .timeout(requestTimeout)
                         .header("authorization", "bearer ${String(authorization)}")
                         .header("apns-topic", request.topic)
-                        .header("apns-push-type", "background")
-                        .header("apns-priority", "5")
+                        .header("apns-push-type", request.pushType.headerValue)
+                        .header("apns-priority", request.pushType.priority.toString())
                         .header("apns-expiration", request.expirationEpochSecond.toString())
                         .header("content-type", "application/json")
                         .POST(HttpRequest.BodyPublishers.ofByteArray(payload))

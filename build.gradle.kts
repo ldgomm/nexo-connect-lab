@@ -113,6 +113,7 @@ tasks.register<Test>("semanticAcceptanceTest") {
         includeTestsMatching("*.ApnsResponseClassifierTest")
         includeTestsMatching("*.ApnsProviderTokenSourceTest")
         includeTestsMatching("*.ApnsSandboxNotificationProviderTest")
+        includeTestsMatching("*.PushNotificationPolicyTest")
     }
 }
 
@@ -146,6 +147,18 @@ tasks.register<Test>("apnsSandboxAdapterTest") {
         includeTestsMatching("*.NotificationOutboxDeliveryWorkerTest")
         includeTestsMatching("*.ApnsResponseClassifierTest")
         includeTestsMatching("*.ApnsProviderTokenSourceTest")
+        includeTestsMatching("*.ApnsSandboxNotificationProviderTest")
+    }
+}
+
+tasks.register<Test>("pushPrivacyPolicyTest") {
+    description =
+        "Verifies mute suppression, lock-screen privacy, badge semantics, quiet mode, and APNs payload safety."
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    filter {
+        includeTestsMatching("*.PushNotificationPolicyTest")
         includeTestsMatching("*.ApnsSandboxNotificationProviderTest")
     }
 }

@@ -7,6 +7,7 @@ import com.premierdarkcoffee.nexo.connect.lab.application.message.MessageIdempot
 import com.premierdarkcoffee.nexo.connect.lab.application.persistence.DurableTextRepository
 import com.premierdarkcoffee.nexo.connect.lab.application.persistence.DurableTextRepositoryResult
 import com.premierdarkcoffee.nexo.connect.lab.application.persistence.DurableTextWriteRequest
+import com.premierdarkcoffee.nexo.connect.lab.application.push.PushNotificationPolicy
 import com.premierdarkcoffee.nexo.connect.lab.domain.conversation.ConversationAccessScope
 import com.premierdarkcoffee.nexo.connect.lab.domain.conversation.ConversationCapability
 import com.premierdarkcoffee.nexo.connect.lab.domain.conversation.ConversationParticipant
@@ -25,6 +26,12 @@ import com.premierdarkcoffee.nexo.connect.lab.domain.persistence.ConversationPer
 import com.premierdarkcoffee.nexo.connect.lab.domain.persistence.DurableTextPersistenceBundle
 import com.premierdarkcoffee.nexo.connect.lab.domain.persistence.MessageIdentityPersistenceRecord
 import com.premierdarkcoffee.nexo.connect.lab.domain.persistence.TextMessagePersistenceRecord
+import com.premierdarkcoffee.nexo.connect.lab.domain.push.NotificationBadgeMode
+import com.premierdarkcoffee.nexo.connect.lab.domain.push.NotificationLockScreenPrivacy
+import com.premierdarkcoffee.nexo.connect.lab.domain.push.NotificationPolicyDecision
+import com.premierdarkcoffee.nexo.connect.lab.domain.push.NotificationPreferenceSnapshot
+import com.premierdarkcoffee.nexo.connect.lab.domain.push.NotificationPresentation
+import com.premierdarkcoffee.nexo.connect.lab.domain.push.NotificationQuietMode
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.sql.Connection
@@ -37,6 +44,7 @@ class PostgresDurableTextRepository(
     private val dataSource: DataSource,
     private val authorizer: DurableTextMessageAuthorizer = DurableTextMessageAuthorizer(),
     private val idempotencyEvaluator: MessageIdempotencyEvaluator = MessageIdempotencyEvaluator(),
+    private val notificationPolicy: PushNotificationPolicy = PushNotificationPolicy(),
 ) : DurableTextRepository {
     override fun persist(request: DurableTextWriteRequest): DurableTextRepositoryResult =
         dataSource.connection.use { connection ->
@@ -429,6 +437,12 @@ class PostgresDurableTextRepository(
         message: TextMessagePersistenceRecord,
     ) {
         val targets = loadActiveNotificationTargets(connection, conversation, message.senderSubjectRef)
+            .mapNotNull { target ->
+                when (val decision = notificationPolicy.decide(target.preference)) {
+                    NotificationPolicyDecision.SuppressedMuted -> null
+                    is NotificationPolicyDecision.Deliver -> PreparedNotificationTarget(target, decision.presentation)
+                }
+            }
         if (targets.isEmpty()) return
 
         connection.prepareStatement(
@@ -437,33 +451,36 @@ class PostgresDurableTextRepository(
                 intent_ref, platform_scope_ref, organization_scope_ref, business_scope_ref,
                 conversation_ref, server_message_ref, recipient_subject_ref,
                 recipient_actor_type, registration_ref, application, provider, environment,
-                notification_type, status, attempt_count, max_attempts, next_attempt_at,
+                notification_type, presentation_mode, badge_mode,
+                status, attempt_count, max_attempts, next_attempt_at,
                 lease_owner, lease_expires_at, last_error_code, delivered_at,
                 dead_lettered_at, created_at, updated_at, version
             ) VALUES (
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                'MESSAGE_CREATED', 'PENDING', 0, ?, ?,
+                'MESSAGE_CREATED', ?, ?, 'PENDING', 0, ?, ?,
                 NULL, NULL, NULL, NULL, NULL, ?, ?, 0
             )
             """.trimIndent(),
         ).use { statement ->
             targets.forEach { target ->
-                statement.setString(1, notificationIntentRef(message.serverMessageRef, target.registrationRef))
+                statement.setString(1, notificationIntentRef(message.serverMessageRef, target.target.registrationRef))
                 statement.setString(2, conversation.platformScopeRef)
-                statement.setString(3, target.organizationScopeRef)
-                statement.setString(4, target.businessScopeRef)
+                statement.setString(3, target.target.organizationScopeRef)
+                statement.setString(4, target.target.businessScopeRef)
                 statement.setString(5, conversation.conversationRef)
                 statement.setString(6, message.serverMessageRef)
-                statement.setString(7, target.subjectRef)
-                statement.setString(8, target.actorType)
-                statement.setString(9, target.registrationRef)
-                statement.setString(10, target.application)
-                statement.setString(11, target.provider)
-                statement.setString(12, target.environment)
-                statement.setInt(13, DEFAULT_NOTIFICATION_MAX_ATTEMPTS)
-                statement.setTimestamp(14, java.sql.Timestamp.from(message.acceptedAtServer))
-                statement.setTimestamp(15, java.sql.Timestamp.from(message.acceptedAtServer))
+                statement.setString(7, target.target.subjectRef)
+                statement.setString(8, target.target.actorType)
+                statement.setString(9, target.target.registrationRef)
+                statement.setString(10, target.target.application)
+                statement.setString(11, target.target.provider)
+                statement.setString(12, target.target.environment)
+                statement.setString(13, target.presentation.mode.name)
+                statement.setString(14, target.presentation.badgeMode.name)
+                statement.setInt(15, DEFAULT_NOTIFICATION_MAX_ATTEMPTS)
                 statement.setTimestamp(16, java.sql.Timestamp.from(message.acceptedAtServer))
+                statement.setTimestamp(17, java.sql.Timestamp.from(message.acceptedAtServer))
+                statement.setTimestamp(18, java.sql.Timestamp.from(message.acceptedAtServer))
                 statement.addBatch()
             }
             val results = statement.executeBatch()
@@ -486,12 +503,22 @@ class PostgresDurableTextRepository(
                    registration.actor_type,
                    registration.application,
                    registration.provider,
-                   registration.environment
+                   registration.environment,
+                   COALESCE(preference.muted, FALSE) AS preference_muted,
+                   COALESCE(preference.lock_screen_privacy, 'GENERIC') AS lock_screen_privacy,
+                   COALESCE(preference.badge_mode, 'SET_ONE') AS preference_badge_mode,
+                   COALESCE(preference.quiet_mode, 'OFF') AS preference_quiet_mode
             FROM connect.push_device_registrations AS registration
             JOIN connect.conversation_participants AS participant
               ON participant.conversation_ref = ?
              AND participant.subject_ref = registration.subject_ref
              AND participant.actor_type = registration.actor_type
+            LEFT JOIN connect.push_notification_preferences AS preference
+              ON preference.conversation_ref = participant.conversation_ref
+             AND preference.registration_ref = registration.registration_ref
+             AND preference.platform_scope_ref = registration.platform_scope_ref
+             AND preference.subject_ref = registration.subject_ref
+             AND preference.actor_type = registration.actor_type
             WHERE registration.platform_scope_ref = ?
               AND registration.status = 'ACTIVE'
               AND participant.status = 'ACTIVE'
@@ -526,6 +553,18 @@ class PostgresDurableTextRepository(
                             application = resultSet.getString("application"),
                             provider = resultSet.getString("provider"),
                             environment = resultSet.getString("environment"),
+                            preference = NotificationPreferenceSnapshot(
+                                muted = resultSet.getBoolean("preference_muted"),
+                                lockScreenPrivacy = NotificationLockScreenPrivacy.valueOf(
+                                    resultSet.getString("lock_screen_privacy"),
+                                ),
+                                badgeMode = NotificationBadgeMode.valueOf(
+                                    resultSet.getString("preference_badge_mode"),
+                                ),
+                                quietMode = NotificationQuietMode.valueOf(
+                                    resultSet.getString("preference_quiet_mode"),
+                                ),
+                            ),
                         ),
                     )
                 }
@@ -550,6 +589,12 @@ class PostgresDurableTextRepository(
         val application: String,
         val provider: String,
         val environment: String,
+        val preference: NotificationPreferenceSnapshot,
+    )
+
+    private data class PreparedNotificationTarget(
+        val target: ActiveNotificationTarget,
+        val presentation: NotificationPresentation,
     )
 
     private fun ResultSet.toConversationRecord(): ConversationPersistenceRecord = ConversationPersistenceRecord(

@@ -5,8 +5,10 @@ import com.premierdarkcoffee.nexo.connect.lab.application.push.NotificationProvi
 import com.premierdarkcoffee.nexo.connect.lab.application.push.PushDeliveryTokenResolution
 import com.premierdarkcoffee.nexo.connect.lab.application.push.PushDeliveryTokenResolver
 import com.premierdarkcoffee.nexo.connect.lab.domain.identity.ConnectActorType
+import com.premierdarkcoffee.nexo.connect.lab.domain.push.NotificationBadgeMode
 import com.premierdarkcoffee.nexo.connect.lab.domain.push.NotificationOutboxIntent
 import com.premierdarkcoffee.nexo.connect.lab.domain.push.NotificationOutboxStatus
+import com.premierdarkcoffee.nexo.connect.lab.domain.push.NotificationPresentationMode
 import com.premierdarkcoffee.nexo.connect.lab.domain.push.NotificationType
 import com.premierdarkcoffee.nexo.connect.lab.domain.push.PushApplication
 import com.premierdarkcoffee.nexo.connect.lab.domain.push.PushEnvironment
@@ -24,24 +26,60 @@ import kotlin.test.assertTrue
 
 class ApnsSandboxNotificationProviderTest {
     @Test
-    fun `sandbox request carries only minimal references and redacts device and authorization secrets`() {
+    fun `generic sandbox alert uses fixed localisation keys and redacts private material`() {
         val capture = CapturingTransport()
         val provider = provider(capture)
 
-        val result = provider.deliver(intent())
+        val result = provider.deliver(
+            intent().copy(
+                presentationMode = NotificationPresentationMode.GENERIC_ALERT,
+                badgeMode = NotificationBadgeMode.SET_ONE,
+            ),
+        )
 
         assertIs<NotificationProviderDeliveryResult.Delivered>(result)
         assertEquals(DEVICE_TOKEN, capture.deviceToken)
         assertEquals(AUTHORIZATION, capture.authorization)
         assertEquals(CLIENT_TOPIC, capture.topic)
+        assertEquals(ApnsPushType.ALERT, capture.pushType)
+        assertEquals(10, capture.pushType.priority)
+        assertTrue(capture.payload.contains("\"title-loc-key\":\"CONNECT_NOTIFICATION_TITLE\""))
+        assertTrue(capture.payload.contains("\"loc-key\":\"CONNECT_NOTIFICATION_NEW_MESSAGE\""))
+        assertFalse(capture.payload.contains("\"title-loc-args\""))
+        assertFalse(capture.payload.contains("\"loc-args\""))
+        assertFalse(capture.payload.contains("\"body\""))
+        assertTrue(capture.payload.contains("\"badge\":1"))
         assertTrue(capture.payload.contains("\"content-available\":1"))
         assertTrue(capture.payload.contains("conversation-1"))
         assertTrue(capture.payload.contains("server-message-1"))
         assertFalse(capture.payload.contains(PRIVATE_BODY_SENTINEL))
+        assertFalse(capture.payload.contains("client-1"))
+        assertFalse(capture.payload.contains(DEVICE_TOKEN))
+        assertFalse(capture.payload.contains(AUTHORIZATION))
         assertFalse(capture.renderedRequest.contains(DEVICE_TOKEN))
         assertFalse(capture.renderedRequest.contains(AUTHORIZATION))
         assertTrue(capture.renderedRequest.contains("deviceToken=<redacted>"))
         assertTrue(capture.renderedRequest.contains("authorization=<redacted>"))
+    }
+
+    @Test
+    fun `hidden notification is background only and leaves badge unchanged`() {
+        val capture = CapturingTransport()
+
+        val result = provider(capture).deliver(
+            intent().copy(
+                presentationMode = NotificationPresentationMode.BACKGROUND_ONLY,
+                badgeMode = NotificationBadgeMode.UNCHANGED,
+            ),
+        )
+
+        assertIs<NotificationProviderDeliveryResult.Delivered>(result)
+        assertEquals(ApnsPushType.BACKGROUND, capture.pushType)
+        assertEquals(5, capture.pushType.priority)
+        assertFalse(capture.payload.contains("\"alert\""))
+        assertFalse(capture.payload.contains("\"badge\""))
+        assertFalse(capture.payload.contains(PRIVATE_BODY_SENTINEL))
+        assertTrue(capture.payload.contains("\"content-available\":1"))
     }
 
     @Test
@@ -151,10 +189,12 @@ class ApnsSandboxNotificationProviderTest {
         lateinit var topic: String
         lateinit var payload: String
         lateinit var renderedRequest: String
+        lateinit var pushType: ApnsPushType
 
         override fun send(request: ApnsSandboxRequest): ApnsSandboxTransportResult {
             renderedRequest = request.toString()
             topic = request.topic
+            pushType = request.pushType
             request.withMaterial { deviceTokenChars, authorizationChars, payloadBytes ->
                 deviceToken = String(deviceTokenChars)
                 authorization = String(authorizationChars)

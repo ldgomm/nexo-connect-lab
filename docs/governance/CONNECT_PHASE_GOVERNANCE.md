@@ -5,11 +5,11 @@
 - Programme: `NEXO_CONNECT_LAB`
 - Repository: `connect-lab`
 - Branch: `main`
-- Accepted phase: `CONNECT.22`
-- Accepted HEAD: `380b9558cd69060c51c975fe343487972fc90db2`
+- Accepted phase: `CONNECT.23`
+- Accepted HEAD: `cf095edee3b9990175d6fc496cb5dda00a1a1d42`
 - Immutable user baseline: `558d702bd5e7729721cde71d0e3080513798dcdd`
-- Active phase: `CONNECT.23`
-- Next phase after acceptance: `CONNECT.24`
+- Active phase: `CONNECT.24`
+- Next phase after acceptance: `CONNECT.25`
 
 `CONNECT.07` is the accepted governance commit `e330359...`; its historical
 subject used the temporary label `[CONNECT.01]`. The hash is preserved and the
@@ -141,6 +141,13 @@ durable bounded retry path; invalid registrations and permanent request errors
 become auditable dead letters. Provider tokens, device tokens, response bodies
 and message bodies are absent from logs. Scheduler orchestration and invalid
 token cleanup remain deferred to `CONNECT.25`.
+
+`CONNECT.24` adds durable notification preferences per conversation and
+registered device. Owner and membership checks are uniform and version fenced.
+Mute suppresses creation of the device's outbox intent; generic alerts use
+fixed localisation keys without body or identity arguments, while hidden and
+quiet choices are background-only. Badge behaviour is explicit and the
+privacy-safe presentation is frozen in the outbox for every later retry.
 
 The empty `docker-compose.watch.yml` is tracked by the accepted user baseline.
 Later phase commits must preserve it byte-for-byte unless the user explicitly

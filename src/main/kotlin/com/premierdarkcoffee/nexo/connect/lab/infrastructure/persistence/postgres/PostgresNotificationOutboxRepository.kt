@@ -8,9 +8,11 @@ import com.premierdarkcoffee.nexo.connect.lab.application.persistence.Notificati
 import com.premierdarkcoffee.nexo.connect.lab.application.persistence.NotificationOutboxRepository
 import com.premierdarkcoffee.nexo.connect.lab.application.persistence.RecordNotificationFailureRequest
 import com.premierdarkcoffee.nexo.connect.lab.domain.identity.ConnectActorType
+import com.premierdarkcoffee.nexo.connect.lab.domain.push.NotificationBadgeMode
 import com.premierdarkcoffee.nexo.connect.lab.domain.push.NotificationFailureCode
 import com.premierdarkcoffee.nexo.connect.lab.domain.push.NotificationOutboxIntent
 import com.premierdarkcoffee.nexo.connect.lab.domain.push.NotificationOutboxStatus
+import com.premierdarkcoffee.nexo.connect.lab.domain.push.NotificationPresentationMode
 import com.premierdarkcoffee.nexo.connect.lab.domain.push.NotificationType
 import com.premierdarkcoffee.nexo.connect.lab.domain.push.PushApplication
 import com.premierdarkcoffee.nexo.connect.lab.domain.push.PushEnvironment
@@ -299,5 +301,7 @@ class PostgresNotificationOutboxRepository(private val dataSource: DataSource) :
         createdAt = getTimestamp("created_at").toInstant(),
         updatedAt = getTimestamp("updated_at").toInstant(),
         version = getLong("version"),
+        presentationMode = NotificationPresentationMode.valueOf(getString("presentation_mode")),
+        badgeMode = NotificationBadgeMode.valueOf(getString("badge_mode")),
     )
 }

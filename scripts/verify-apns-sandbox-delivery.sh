@@ -77,8 +77,9 @@ for marker in \
     'api.sandbox.push.apple.com' \
     'HttpClient.Version.HTTP_2' \
     'SHA256withECDSAinP1363Format' \
-    'apns-push-type", "background' \
-    'apns-priority", "5' \
+    'BACKGROUND("background", 5)' \
+    'request.pushType.headerValue' \
+    'request.pushType.priority.toString()' \
     'ExpiredProviderToken' \
     'statusCode == 429' \
     'BadDeviceToken' \
@@ -107,7 +108,7 @@ for marker in \
     'observability stays sanitised' \
     'APNs response taxonomy is closed and deterministic' \
     'provider token uses ES256 P1363' \
-    'redacts device and authorization secrets' \
+    'generic sandbox alert uses fixed localisation keys and redacts private material' \
     'delivery token resolver decrypts only the exact active owner scoped registration'; do
     grep -RFq "$marker" "$WORKER_TEST" "$APNS_TEST_DIR" "$POSTGRES_TEST" ||
         fail "ACCEPTANCE_TEST_MARKER_MISSING:${marker}"

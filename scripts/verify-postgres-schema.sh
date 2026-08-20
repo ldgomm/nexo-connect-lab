@@ -83,6 +83,11 @@ if [[ "$(query_scalar "SELECT count(*) FROM public.flyway_schema_history WHERE v
     exit 6
 fi
 
+if [[ "$(query_scalar "SELECT count(*) FROM public.flyway_schema_history WHERE version = '8' AND success")" != "1" ]]; then
+    printf 'ERROR=FLYWAY_HISTORY_VERSION_EIGHT_MISSING\n' >&2
+    exit 6
+fi
+
 if [[ "$(query_scalar "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'connect' AND table_name IN ('conversations','conversation_participants','messages','message_identities','business_client_conversation_keys')")" != "5" ]]; then
     printf 'ERROR=POSTGRES_SCHEMA_TABLE_SET_MISMATCH\n' >&2
     exit 7
@@ -102,23 +107,32 @@ fi
 
 if [[ "$(query_scalar "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'connect' AND table_name = 'push_device_registrations'")" != "1" ]] ||
     [[ "$(query_scalar "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'connect' AND table_name = 'push_device_registrations'")" != "21" ]] ||
-    [[ "$(query_scalar "SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace WHERE n.nspname = 'connect' AND c.conname IN ('ck_connect_push_registration_ref','ck_connect_push_platform_scope_ref','ck_connect_push_organization_scope_ref','ck_connect_push_business_scope_ref','ck_connect_push_subject_ref','ck_connect_push_actor_type','ck_connect_push_scope_shape','ck_connect_push_application','ck_connect_push_application_owner','ck_connect_push_provider','ck_connect_push_environment','ck_connect_push_device_fingerprint','ck_connect_push_token_fingerprint','ck_connect_push_token_material','ck_connect_push_token_version','ck_connect_push_version','ck_connect_push_timestamps')")" != "17" ]] ||
+    [[ "$(query_scalar "SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace WHERE n.nspname = 'connect' AND c.conname IN ('uq_connect_push_registration_owner','ck_connect_push_registration_ref','ck_connect_push_platform_scope_ref','ck_connect_push_organization_scope_ref','ck_connect_push_business_scope_ref','ck_connect_push_subject_ref','ck_connect_push_actor_type','ck_connect_push_scope_shape','ck_connect_push_application','ck_connect_push_application_owner','ck_connect_push_provider','ck_connect_push_environment','ck_connect_push_device_fingerprint','ck_connect_push_token_fingerprint','ck_connect_push_token_material','ck_connect_push_token_version','ck_connect_push_version','ck_connect_push_timestamps')")" != "18" ]] ||
     [[ "$(query_scalar "SELECT count(*) FROM pg_indexes WHERE schemaname = 'connect' AND indexname IN ('uq_connect_push_active_device_binding','uq_connect_push_active_token_fingerprint','ix_connect_push_owner_active')")" != "3" ]] ||
     [[ "$(query_scalar "SELECT count(*) FROM information_schema.role_table_grants WHERE table_schema = 'connect' AND table_name = 'push_device_registrations' AND grantee = '${POSTGRES_APP_USER}' AND privilege_type IN ('SELECT','INSERT','UPDATE')")" != "3" ]]; then
     printf 'ERROR=POSTGRES_PUSH_DEVICE_REGISTRY_SCHEMA_MISMATCH\n' >&2
     exit 8
 fi
 if [[ "$(query_scalar "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'connect' AND table_name = 'notification_outbox'")" != "1" ]] ||
-    [[ "$(query_scalar "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'connect' AND table_name = 'notification_outbox'")" != "25" ]] ||
-    [[ "$(query_scalar "SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace WHERE n.nspname = 'connect' AND c.conname IN ('uq_connect_notification_message_target','fk_connect_notification_conversation_scope','fk_connect_notification_message','fk_connect_notification_recipient','fk_connect_notification_registration','ck_connect_notification_intent_ref','ck_connect_notification_platform_scope_ref','ck_connect_notification_organization_scope_ref','ck_connect_notification_business_scope_ref','ck_connect_notification_conversation_ref','ck_connect_notification_message_ref','ck_connect_notification_recipient_subject_ref','ck_connect_notification_recipient_actor_type','ck_connect_notification_scope_shape','ck_connect_notification_registration_ref','ck_connect_notification_application','ck_connect_notification_application_owner','ck_connect_notification_provider','ck_connect_notification_environment','ck_connect_notification_type','ck_connect_notification_status','ck_connect_notification_attempts','ck_connect_notification_lease_owner','ck_connect_notification_error_code','ck_connect_notification_state_shape','ck_connect_notification_timestamps','ck_connect_notification_version')")" != "27" ]] ||
+    [[ "$(query_scalar "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'connect' AND table_name = 'notification_outbox'")" != "27" ]] ||
+    [[ "$(query_scalar "SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace WHERE n.nspname = 'connect' AND c.conname IN ('uq_connect_notification_message_target','fk_connect_notification_conversation_scope','fk_connect_notification_message','fk_connect_notification_recipient','fk_connect_notification_registration','ck_connect_notification_intent_ref','ck_connect_notification_platform_scope_ref','ck_connect_notification_organization_scope_ref','ck_connect_notification_business_scope_ref','ck_connect_notification_conversation_ref','ck_connect_notification_message_ref','ck_connect_notification_recipient_subject_ref','ck_connect_notification_recipient_actor_type','ck_connect_notification_scope_shape','ck_connect_notification_registration_ref','ck_connect_notification_application','ck_connect_notification_application_owner','ck_connect_notification_provider','ck_connect_notification_environment','ck_connect_notification_type','ck_connect_notification_status','ck_connect_notification_attempts','ck_connect_notification_lease_owner','ck_connect_notification_error_code','ck_connect_notification_state_shape','ck_connect_notification_timestamps','ck_connect_notification_version','ck_connect_notification_presentation_mode','ck_connect_notification_badge_mode')")" != "29" ]] ||
     [[ "$(query_scalar "SELECT count(*) FROM pg_indexes WHERE schemaname = 'connect' AND indexname IN ('ix_connect_notification_claimable','ix_connect_notification_expired_lease','ix_connect_notification_message','ix_connect_notification_recipient')")" != "4" ]] ||
     [[ "$(query_scalar "SELECT count(*) FROM information_schema.role_table_grants WHERE table_schema = 'connect' AND table_name = 'notification_outbox' AND grantee = '${POSTGRES_APP_USER}' AND privilege_type IN ('SELECT','INSERT','UPDATE')")" != "3" ]]; then
     printf 'ERROR=POSTGRES_NOTIFICATION_OUTBOX_SCHEMA_MISMATCH\n' >&2
     exit 8
 fi
+if [[ "$(query_scalar "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'connect' AND table_name = 'push_notification_preferences'")" != "1" ]] ||
+    [[ "$(query_scalar "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'connect' AND table_name = 'push_notification_preferences'")" != "11" ]] ||
+    [[ "$(query_scalar "SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace WHERE n.nspname = 'connect' AND c.conname IN ('pk_connect_push_notification_preferences','fk_connect_push_preference_conversation_scope','fk_connect_push_preference_participant','fk_connect_push_preference_registration_owner','ck_connect_push_preference_conversation_ref','ck_connect_push_preference_registration_ref','ck_connect_push_preference_platform_scope_ref','ck_connect_push_preference_subject_ref','ck_connect_push_preference_actor_type','ck_connect_push_preference_lock_screen_privacy','ck_connect_push_preference_badge_mode','ck_connect_push_preference_quiet_mode','ck_connect_push_preference_version')")" != "13" ]] ||
+    [[ "$(query_scalar "SELECT count(*) FROM pg_indexes WHERE schemaname = 'connect' AND indexname = 'ix_connect_push_notification_preference_owner'")" != "1" ]] ||
+    [[ "$(query_scalar "SELECT count(*) FROM information_schema.role_table_grants WHERE table_schema = 'connect' AND table_name = 'push_notification_preferences' AND grantee = '${POSTGRES_APP_USER}' AND privilege_type IN ('SELECT','INSERT','UPDATE')")" != "3" ]]; then
+    printf 'ERROR=POSTGRES_PUSH_NOTIFICATION_PREFERENCE_SCHEMA_MISMATCH\n' >&2
+    exit 8
+fi
 printf 'POSTGRES_SCHEMA_OBJECTS=PASS\n'
 printf 'POSTGRES_PUSH_DEVICE_REGISTRY_SCHEMA=PASS\n'
 printf 'POSTGRES_NOTIFICATION_OUTBOX_SCHEMA=PASS\n'
+printf 'POSTGRES_PUSH_NOTIFICATION_PREFERENCE_SCHEMA=PASS\n'
 
 compose exec -T postgres psql -X -v ON_ERROR_STOP=1 \
     -U "$POSTGRES_USER" -d "$DATABASE_NAME" <<'SQL'

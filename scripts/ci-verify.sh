@@ -132,6 +132,7 @@ required_files=(
     docs/architecture/CONNECT_21_PROTECTED_PUSH_DEVICE_REGISTRY.md
     docs/architecture/CONNECT_22_DURABLE_NOTIFICATION_OUTBOX.md
     docs/architecture/CONNECT_23_APNS_SANDBOX_DELIVERY.md
+    docs/architecture/CONNECT_24_PUSH_PRIVACY_AND_MUTE_POLICY.md
     docs/architecture/connect-multi-instance-fanout-contract.properties
     docs/architecture/connect-redis-ephemeral-boundary.properties
     docs/architecture/connect-realtime-fanout.properties
@@ -145,6 +146,7 @@ required_files=(
     docs/architecture/connect-protected-push-device-registry.properties
     docs/architecture/connect-durable-notification-outbox.properties
     docs/architecture/connect-apns-sandbox-delivery.properties
+    docs/architecture/connect-push-privacy-and-mute-policy.properties
     docs/governance/CONNECT_PHASE_GOVERNANCE.md
     docs/governance/INTELLIJ_FORMATTING.md
     docs/governance/SEMANTIC_ACCEPTANCE_GATES.md
@@ -182,6 +184,7 @@ required_files=(
     scripts/verify-protected-push-device-registry.sh
     scripts/verify-durable-notification-outbox.sh
     scripts/verify-apns-sandbox-delivery.sh
+    scripts/verify-push-privacy-and-mute-policy.sh
     scripts/verify-formatting-convergence.sh
     scripts/verify-multi-instance-fanout-architecture.sh
     scripts/verify-multi-instance-realtime-fanout.sh
@@ -198,9 +201,11 @@ required_files=(
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/persistence/DurableReceiptCursorRepository.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/persistence/PushDeviceRegistry.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/persistence/NotificationOutboxRepository.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/persistence/PushNotificationPreferenceRepository.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/push/NotificationDelivery.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/push/NotificationOutboxDeliveryWorker.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/push/PushDeliveryTokenResolver.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/push/PushNotificationPolicy.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/ConversationSubscriptionAuthorizer.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/AuthorizedConversationEventHub.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/realtime/DurableTextMessageCoordinator.kt
@@ -228,10 +233,12 @@ required_files=(
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/push/PushDeviceRegistration.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/push/PushTokenSecret.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/push/NotificationOutboxIntent.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/push/PushNotificationPreference.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresDurableReceiptCursorRepository.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresPushDeviceRegistry.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresNotificationOutboxRepository.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresPushDeliveryTokenResolver.kt
+    src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/persistence/postgres/PostgresPushNotificationPreferenceRepository.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/push/ProtectedPushTokenCodec.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/push/apns/ApnsSandboxConfiguration.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/push/apns/ApnsProviderTokenSource.kt
@@ -248,6 +255,7 @@ required_files=(
     src/main/resources/db/migration/V5__durable_receipt_cursors.sql
     src/main/resources/db/migration/V6__protected_push_device_registry.sql
     src/main/resources/db/migration/V7__durable_notification_outbox.sql
+    src/main/resources/db/migration/V8__push_privacy_and_mute_policy.sql
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/conversation/DurableConversationListing.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/conversation/CreateBusinessClientConversationCommand.kt
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/domain/conversation/DurableConversationSnapshot.kt
@@ -316,6 +324,7 @@ required_files=(
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/push/apns/ApnsResponseClassifierTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/push/apns/ApnsProviderTokenSourceTest.kt
     src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/infrastructure/push/apns/ApnsSandboxNotificationProviderTest.kt
+    src/test/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/push/PushNotificationPolicyTest.kt
 )
 
 for required_file in "${required_files[@]}"; do
@@ -429,6 +438,7 @@ bash -n scripts/verify-ephemeral-signal-resilience-runtime.sh
 bash -n scripts/verify-protected-push-device-registry.sh
 bash -n scripts/verify-durable-notification-outbox.sh
 bash -n scripts/verify-apns-sandbox-delivery.sh
+bash -n scripts/verify-push-privacy-and-mute-policy.sh
 bash -n scripts/verify-formatting-convergence.sh
 bash -n scripts/verify-multi-instance-fanout-architecture.sh
 bash -n scripts/verify-multi-instance-realtime-fanout.sh
@@ -492,6 +502,9 @@ printf 'DURABLE_NOTIFICATION_OUTBOX_CONTRACT_GATE=PASS\n'
 ./scripts/verify-apns-sandbox-delivery.sh
 printf 'APNS_SANDBOX_DELIVERY_CONTRACT_GATE=PASS\n'
 
+./scripts/verify-push-privacy-and-mute-policy.sh
+printf 'PUSH_PRIVACY_AND_MUTE_POLICY_CONTRACT_GATE=PASS\n'
+
 CONNECT_C5_MIGRATION_DIRECTORY="src/main/resources/db/migration"
 CONNECT_C5_MIGRATION_FILE_COUNT="$(
     find "$CONNECT_C5_MIGRATION_DIRECTORY" -maxdepth 1 -type f -name 'V*__*.sql' -print |
@@ -505,7 +518,8 @@ CONNECT_C5_V4_COUNT="$(find "$CONNECT_C5_MIGRATION_DIRECTORY" -maxdepth 1 -type 
 CONNECT_C5_V5_COUNT="$(find "$CONNECT_C5_MIGRATION_DIRECTORY" -maxdepth 1 -type f -name 'V5__*.sql' -print | wc -l | tr -d '[:space:]')"
 CONNECT_C5_V6_COUNT="$(find "$CONNECT_C5_MIGRATION_DIRECTORY" -maxdepth 1 -type f -name 'V6__*.sql' -print | wc -l | tr -d '[:space:]')"
 CONNECT_C5_V7_COUNT="$(find "$CONNECT_C5_MIGRATION_DIRECTORY" -maxdepth 1 -type f -name 'V7__*.sql' -print | wc -l | tr -d '[:space:]')"
-if [[ "$CONNECT_C5_MIGRATION_FILE_COUNT" != "7" ]] ||
+CONNECT_C5_V8_COUNT="$(find "$CONNECT_C5_MIGRATION_DIRECTORY" -maxdepth 1 -type f -name 'V8__*.sql' -print | wc -l | tr -d '[:space:]')"
+if [[ "$CONNECT_C5_MIGRATION_FILE_COUNT" != "8" ]] ||
     [[ "$CONNECT_C5_V1_COUNT" != "1" ]] ||
     [[ "$CONNECT_C5_V2_COUNT" != "1" ]] ||
     [[ "$CONNECT_C5_V3_COUNT" != "1" ]] ||
@@ -513,14 +527,16 @@ if [[ "$CONNECT_C5_MIGRATION_FILE_COUNT" != "7" ]] ||
     [[ "$CONNECT_C5_V5_COUNT" != "1" ]] ||
     [[ "$CONNECT_C5_V6_COUNT" != "1" ]] ||
     [[ "$CONNECT_C5_V7_COUNT" != "1" ]] ||
+    [[ "$CONNECT_C5_V8_COUNT" != "1" ]] ||
     [[ ! -f "$CONNECT_C5_MIGRATION_DIRECTORY/V5__durable_receipt_cursors.sql" ]] ||
     [[ ! -f "$CONNECT_C5_MIGRATION_DIRECTORY/V6__protected_push_device_registry.sql" ]] ||
-    [[ ! -f "$CONNECT_C5_MIGRATION_DIRECTORY/V7__durable_notification_outbox.sql" ]]; then
+    [[ ! -f "$CONNECT_C5_MIGRATION_DIRECTORY/V7__durable_notification_outbox.sql" ]] ||
+    [[ ! -f "$CONNECT_C5_MIGRATION_DIRECTORY/V8__push_privacy_and_mute_policy.sql" ]]; then
     printf 'CI_STATIC_CONTRACT=FAIL\n' >&2
     printf 'ERROR=CONNECT_C5_MIGRATION_SET_MISMATCH\n' >&2
     exit 20
 fi
-CONNECT_C5_MIGRATION_SET=EXACT_V1_TO_V7
+CONNECT_C5_MIGRATION_SET=EXACT_V1_TO_V8
 
 if grep -En 'route\(|webSocket|WebSocket|/messages|/conversations' \
     src/main/kotlin/com/premierdarkcoffee/nexo/connect/lab/application/persistence/ConversationRepository.kt \

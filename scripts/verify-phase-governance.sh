@@ -67,10 +67,10 @@ require_property "$POLICY_FILE" baseline.head 558d702bd5e7729721cde71d0e30805137
 require_property "$POLICY_FILE" baseline.parent e330359dc6602e9a33da891b5fdb64ed8c199f38
 require_property "$POLICY_FILE" baseline.commit_count 31
 require_property "$POLICY_FILE" baseline.subject .
-require_property "$POLICY_FILE" accepted.phase CONNECT.22
-require_property "$POLICY_FILE" accepted.head 380b9558cd69060c51c975fe343487972fc90db2
-require_property "$POLICY_FILE" establishing.phase CONNECT.23
-require_property "$POLICY_FILE" next.phase CONNECT.24
+require_property "$POLICY_FILE" accepted.phase CONNECT.23
+require_property "$POLICY_FILE" accepted.head cf095edee3b9990175d6fc496cb5dda00a1a1d42
+require_property "$POLICY_FILE" establishing.phase CONNECT.24
+require_property "$POLICY_FILE" next.phase CONNECT.25
 require_property "$POLICY_FILE" commits.per.phase 1
 require_property "$POLICY_FILE" intermediate.commits forbidden
 require_property "$POLICY_FILE" commit.before.full_pass forbidden
@@ -145,7 +145,7 @@ require_property "$POLICY_FILE" connect.notification.apns.host api.sandbox.push.
 require_property "$POLICY_FILE" connect.notification.apns.transport https_http_2
 require_property "$POLICY_FILE" connect.notification.apns.authentication es256_provider_token
 require_property "$POLICY_FILE" connect.notification.apns.private.key file_boundary
-require_property "$POLICY_FILE" connect.notification.apns.payload background_opaque_references_only
+require_property "$POLICY_FILE" connect.notification.apns.payload privacy_safe_policy_snapshot
 require_property "$POLICY_FILE" connect.notification.apns.message.body false
 require_property "$POLICY_FILE" connect.notification.apns.response.taxonomy closed
 require_property "$POLICY_FILE" connect.notification.apns.retry.classification bounded
@@ -153,6 +153,18 @@ require_property "$POLICY_FILE" connect.notification.apns.observability sanitise
 require_property "$POLICY_FILE" connect.notification.apns.secret.log.count 0
 require_property "$POLICY_FILE" connect.notification.apns.device.token.log.count 0
 require_property "$POLICY_FILE" connect.notification.provider.outage.intent.loss.count 0
+require_property "$POLICY_FILE" connect.notification.preference.truth postgresql
+require_property "$POLICY_FILE" connect.notification.preference.scope conversation_and_registered_device
+require_property "$POLICY_FILE" connect.notification.preference.owner authenticated_active_participant_device_owner
+require_property "$POLICY_FILE" connect.notification.preference.version.fencing required
+require_property "$POLICY_FILE" connect.notification.muted.outbox.intent.count 0
+require_property "$POLICY_FILE" connect.notification.lock.screen.generic localisation_keys_without_arguments
+require_property "$POLICY_FILE" connect.notification.lock.screen.hidden background_only
+require_property "$POLICY_FILE" connect.notification.badge.contract unchanged_or_set_one
+require_property "$POLICY_FILE" connect.notification.quiet.mode.hook injected
+require_property "$POLICY_FILE" connect.notification.presentation.snapshot required
+require_property "$POLICY_FILE" connect.notification.payload.sender.identity false
+require_property "$POLICY_FILE" connect.notification.payload.recipient.identity false
 require_property "$POLICY_FILE" connect.notification.runtime.scheduler deferred_connect_25
 require_property "$POLICY_FILE" connect.notification.invalid.token.cleanup deferred_connect_25
 
@@ -252,10 +264,16 @@ require_property "$POLICY_FILE" connect.notification.invalid.token.cleanup defer
     fail "CONNECT_22_COMMIT_COUNT_MISMATCH"
 [[ "$(git show -s --format=%s 380b9558cd69060c51c975fe343487972fc90db2 2>/dev/null || true)" == \
     "feat(connect): [CONNECT.22] add durable notification outbox" ]] || fail "CONNECT_22_SUBJECT_MISMATCH"
+[[ "$(git rev-parse cf095edee3b9990175d6fc496cb5dda00a1a1d42^ 2>/dev/null || true)" == \
+    "380b9558cd69060c51c975fe343487972fc90db2" ]] || fail "CONNECT_23_PARENT_MISMATCH"
+[[ "$(git rev-list --count cf095edee3b9990175d6fc496cb5dda00a1a1d42 2>/dev/null || true)" == "47" ]] ||
+    fail "CONNECT_23_COMMIT_COUNT_MISMATCH"
+[[ "$(git show -s --format=%s cf095edee3b9990175d6fc496cb5dda00a1a1d42 2>/dev/null || true)" == \
+    "feat(connect): [CONNECT.23] integrate APNs sandbox delivery" ]] || fail "CONNECT_23_SUBJECT_MISMATCH"
 
 require_property "$OWNERSHIP_FILE" manifest.version 1
 require_property "$OWNERSHIP_FILE" nexo_core.owns identity,business,branch,products,orders,payments,inventory,fiscal,accounting
-require_property "$OWNERSHIP_FILE" connect.owns conversations,participants,messages,sequences,receipts,presence,typing,media_metadata,push_device_registrations,notification_outbox,notification_delivery
+require_property "$OWNERSHIP_FILE" connect.owns conversations,participants,messages,sequences,receipts,presence,typing,media_metadata,push_device_registrations,push_notification_preferences,notification_outbox,notification_delivery
 require_property "$OWNERSHIP_FILE" ai_lab.owns interpretation,orchestration,authorised_handoff
 require_property "$OWNERSHIP_FILE" connect.postgres.durable_truth true
 require_property "$OWNERSHIP_FILE" connect.redis.durable_truth false
@@ -265,7 +283,7 @@ require_property "$OWNERSHIP_FILE" connect.nexo_business_mutation forbidden
 require_property "$OWNERSHIP_FILE" connect.country_specific_legal_logic forbidden
 require_property "$OWNERSHIP_FILE" integration.first_phase CONNECT.46
 
-expected_phases="CONNECT.B CONNECT.C1 CONNECT.C2 CONNECT.C3 CONNECT.C4 CONNECT.C5 CONNECT.C6 CONNECT.07 CONNECT.USER.BASELINE CONNECT.08 CONNECT.09 CONNECT.10 CONNECT.11 CONNECT.12 CONNECT.13 CONNECT.14 CONNECT.15 CONNECT.16 CONNECT.17 CONNECT.18 CONNECT.19 CONNECT.20 CONNECT.21 CONNECT.22"
+expected_phases="CONNECT.B CONNECT.C1 CONNECT.C2 CONNECT.C3 CONNECT.C4 CONNECT.C5 CONNECT.C6 CONNECT.07 CONNECT.USER.BASELINE CONNECT.08 CONNECT.09 CONNECT.10 CONNECT.11 CONNECT.12 CONNECT.13 CONNECT.14 CONNECT.15 CONNECT.16 CONNECT.17 CONNECT.18 CONNECT.19 CONNECT.20 CONNECT.21 CONNECT.22 CONNECT.23"
 actual_phases=""
 baseline_count=0
 current_count=0
@@ -292,13 +310,13 @@ while IFS=$'\t' read -r record phase status commit subject; do
             ;;
         CURRENT)
             current_count=$((current_count + 1))
-            [[ "$phase" == "CONNECT.23" && "$status" == "IMPLEMENTING" && "$commit" == "DISCOVER_BY_SUBJECT" ]] ||
+            [[ "$phase" == "CONNECT.24" && "$status" == "IMPLEMENTING" && "$commit" == "DISCOVER_BY_SUBJECT" ]] ||
                 fail "LEDGER_CURRENT_MISMATCH"
             current_subject="$subject"
             ;;
         NEXT)
             next_count=$((next_count + 1))
-            [[ "$phase" == "CONNECT.24" && "$status" == "LOCKED" && "$commit" == "-" ]] ||
+            [[ "$phase" == "CONNECT.25" && "$status" == "LOCKED" && "$commit" == "-" ]] ||
                 fail "LEDGER_NEXT_MISMATCH"
             ;;
         "")
@@ -309,24 +327,24 @@ while IFS=$'\t' read -r record phase status commit subject; do
     esac
 done < "$LEDGER_FILE"
 
-[[ "$baseline_count" -eq 24 && "$actual_phases" == "$expected_phases" ]] ||
+[[ "$baseline_count" -eq 25 && "$actual_phases" == "$expected_phases" ]] ||
     fail "LEDGER_BASELINE_SEQUENCE_MISMATCH"
 [[ "$current_count" -eq 1 && "$next_count" -eq 1 ]] || fail "LEDGER_PHASE_CARDINALITY_MISMATCH"
 
-connect_23_matches="$(git log HEAD --format='%H%x09%s' | awk -F '\t' -v expected="$current_subject" '$2 == expected { print $1 }')"
-connect_23_count="$(printf '%s\n' "$connect_23_matches" | awk 'NF { count++ } END { print count + 0 }')"
+connect_24_matches="$(git log HEAD --format='%H%x09%s' | awk -F '\t' -v expected="$current_subject" '$2 == expected { print $1 }')"
+connect_24_count="$(printf '%s\n' "$connect_24_matches" | awk 'NF { count++ } END { print count + 0 }')"
 
-if [[ "$connect_23_count" == "0" ]]; then
-    [[ "$(git rev-parse HEAD)" == "380b9558cd69060c51c975fe343487972fc90db2" ]] ||
-        fail "CONNECT_23_COMMIT_MISSING_AFTER_BASELINE"
-elif [[ "$connect_23_count" == "1" ]]; then
-    connect_23_commit="$connect_23_matches"
-    [[ "$(git rev-parse "${connect_23_commit}^")" == "380b9558cd69060c51c975fe343487972fc90db2" ]] ||
-        fail "CONNECT_23_PARENT_MISMATCH"
-    [[ "$(git rev-list --count "$connect_23_commit")" == "47" ]] || fail "CONNECT_23_COMMIT_COUNT_MISMATCH"
-    git merge-base --is-ancestor "$connect_23_commit" HEAD || fail "CONNECT_23_NOT_ANCESTOR"
+if [[ "$connect_24_count" == "0" ]]; then
+    [[ "$(git rev-parse HEAD)" == "cf095edee3b9990175d6fc496cb5dda00a1a1d42" ]] ||
+        fail "CONNECT_24_COMMIT_MISSING_AFTER_BASELINE"
+elif [[ "$connect_24_count" == "1" ]]; then
+    connect_24_commit="$connect_24_matches"
+    [[ "$(git rev-parse "${connect_24_commit}^")" == "cf095edee3b9990175d6fc496cb5dda00a1a1d42" ]] ||
+        fail "CONNECT_24_PARENT_MISMATCH"
+    [[ "$(git rev-list --count "$connect_24_commit")" == "48" ]] || fail "CONNECT_24_COMMIT_COUNT_MISMATCH"
+    git merge-base --is-ancestor "$connect_24_commit" HEAD || fail "CONNECT_24_NOT_ANCESTOR"
 else
-    fail "CONNECT_23_COMMIT_NOT_UNIQUE"
+    fail "CONNECT_24_COMMIT_NOT_UNIQUE"
 fi
 
 if [[ "$REQUIRE_EMPTY_TRACKED_WATCH" -eq 1 ]]; then
@@ -346,7 +364,7 @@ fi
 printf 'PHASE_GOVERNANCE=PASS\n'
 printf 'BASELINE_CONNECT_07=PASS\n'
 printf 'USER_BASELINE=PASS\n'
-printf 'ACCEPTED_CONNECT_22=PASS\n'
+printf 'ACCEPTED_CONNECT_23=PASS\n'
 printf 'OWNERSHIP_MANIFEST=PASS\n'
 printf 'ONE_COMMIT_POLICY=PASS\n'
 printf 'MANUAL_IDE_ACTIONS=FORBIDDEN\n'

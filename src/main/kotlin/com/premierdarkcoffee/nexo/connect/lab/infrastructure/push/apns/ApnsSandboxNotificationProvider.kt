@@ -5,8 +5,10 @@ import com.premierdarkcoffee.nexo.connect.lab.application.push.NotificationProvi
 import com.premierdarkcoffee.nexo.connect.lab.application.push.NotificationProviderDeliveryResult
 import com.premierdarkcoffee.nexo.connect.lab.application.push.PushDeliveryTokenResolution
 import com.premierdarkcoffee.nexo.connect.lab.application.push.PushDeliveryTokenResolver
+import com.premierdarkcoffee.nexo.connect.lab.domain.push.NotificationBadgeMode
 import com.premierdarkcoffee.nexo.connect.lab.domain.push.NotificationFailureCode
 import com.premierdarkcoffee.nexo.connect.lab.domain.push.NotificationOutboxIntent
+import com.premierdarkcoffee.nexo.connect.lab.domain.push.NotificationPresentationMode
 import com.premierdarkcoffee.nexo.connect.lab.domain.push.NotificationType
 import com.premierdarkcoffee.nexo.connect.lab.domain.push.PushEnvironment
 import com.premierdarkcoffee.nexo.connect.lab.domain.push.PushProvider
@@ -33,7 +35,7 @@ class ApnsSandboxNotificationProvider(
             val resolution = tokenResolver.withActiveToken(intent) { token ->
                 token.withBytes { tokenBytes ->
                     val deviceToken = tokenBytes.toApnsDeviceToken()
-                    val payload = minimalBackgroundPayload(intent)
+                    val payload = privacySafePayload(intent)
                     try {
                         authorizationSource.authorization().use { authorization ->
                             authorization.withChars { authorizationChars ->
@@ -42,6 +44,7 @@ class ApnsSandboxNotificationProvider(
                                     authorization = authorizationChars,
                                     topic = topic,
                                     expirationEpochSecond = clock.instant().plus(PUSH_EXPIRATION).epochSecond,
+                                    pushType = intent.apnsPushType(),
                                     payload = payload,
                                 ).use { request ->
                                     val classified = ApnsResponseClassifier.classify(transport.send(request))
@@ -72,18 +75,35 @@ class ApnsSandboxNotificationProvider(
     override fun toString(): String = "ApnsSandboxNotificationProvider(configuration=$configuration, " +
         "tokenResolver=<redacted>, authorizationSource=<redacted>, transport=<redacted>)"
 
-    private fun minimalBackgroundPayload(intent: NotificationOutboxIntent): ByteArray {
+    private fun privacySafePayload(intent: NotificationOutboxIntent): ByteArray {
         require(intent.type == NotificationType.MESSAGE_CREATED)
+        val alert = if (intent.presentationMode == NotificationPresentationMode.GENERIC_ALERT) {
+            "\"alert\":{" +
+                "\"title-loc-key\":\"CONNECT_NOTIFICATION_TITLE\"," +
+                "\"loc-key\":\"CONNECT_NOTIFICATION_NEW_MESSAGE\"},"
+        } else {
+            ""
+        }
+        val badge = if (intent.badgeMode == NotificationBadgeMode.SET_ONE) ",\"badge\":1" else ""
         val json =
-            "{\"aps\":{\"content-available\":1},\"nexo\":{" +
+            "{\"aps\":{$alert\"content-available\":1$badge},\"nexo\":{" +
                 "\"v\":1," +
                 "\"type\":\"MESSAGE_CREATED\"," +
                 "\"conversationRef\":${intent.conversationRef.toJsonString()}," +
                 "\"serverMessageRef\":${intent.serverMessageRef.toJsonString()}" +
                 "}}"
         val bytes = json.toByteArray(StandardCharsets.UTF_8)
-        require(bytes.size <= MAX_APNS_PAYLOAD_BYTES) { "APNs background payload exceeds the provider limit" }
+        require(bytes.size <= MAX_APNS_PAYLOAD_BYTES) { "APNs payload exceeds the provider limit" }
         return bytes
+    }
+
+    private fun NotificationOutboxIntent.apnsPushType(): ApnsPushType = if (
+        presentationMode == NotificationPresentationMode.GENERIC_ALERT ||
+        badgeMode == NotificationBadgeMode.SET_ONE
+    ) {
+        ApnsPushType.ALERT
+    } else {
+        ApnsPushType.BACKGROUND
     }
 
     private fun String.toJsonString(): String = buildString(length + 2) {

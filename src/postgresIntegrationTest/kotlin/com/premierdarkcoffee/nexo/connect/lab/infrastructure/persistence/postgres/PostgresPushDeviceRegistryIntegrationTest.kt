@@ -57,7 +57,10 @@ class PostgresPushDeviceRegistryIntegrationTest {
                 clock = Clock.fixed(BASE_TIME, ZoneOffset.UTC),
                 registrationRefSupplier = { "push-registration-${sequence.incrementAndGet()}" },
             )
-        executeAdmin("TRUNCATE connect.notification_outbox, connect.push_device_registrations")
+        executeAdmin(
+            "TRUNCATE connect.push_notification_preferences, connect.notification_outbox, " +
+                "connect.push_device_registrations",
+        )
     }
 
     @AfterTest
