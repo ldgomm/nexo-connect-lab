@@ -151,11 +151,11 @@ class PostgresConversationRepositoryIntegrationTest {
                 CreateBusinessClientConversationRequest(
                     principal = clientPrincipal,
                     command =
-                        CreateBusinessClientConversationCommand(
-                            conversationRef = "conversation-client-created",
-                            clientSubjectRef = "another-client-subject",
-                            requestedAt = BASE_TIME,
-                        ),
+                    CreateBusinessClientConversationCommand(
+                        conversationRef = "conversation-client-created",
+                        clientSubjectRef = "another-client-subject",
+                        requestedAt = BASE_TIME,
+                    ),
                 ),
             )
 
@@ -205,16 +205,16 @@ class PostgresConversationRepositoryIntegrationTest {
                     DurableTextWriteRequest(
                         principal = businessPrincipal,
                         command =
-                            SendTextMessageCommand(
-                                conversationRef = "conversation-1",
-                                senderSubjectRef = businessPrincipal.subjectRef,
-                                identity =
-                                    ClientMessageIdentity(
-                                        clientMessageRef = "client-message-1",
-                                        idempotencyKey = "idempotency-key-1",
-                                    ),
-                                body = TextMessageBody("Created then sent"),
+                        SendTextMessageCommand(
+                            conversationRef = "conversation-1",
+                            senderSubjectRef = businessPrincipal.subjectRef,
+                            identity =
+                            ClientMessageIdentity(
+                                clientMessageRef = "client-message-1",
+                                idempotencyKey = "idempotency-key-1",
                             ),
+                            body = TextMessageBody("Created then sent"),
+                        ),
                         serverMessageRef = "server-message-1",
                         acceptedAtServer = BASE_TIME.plusSeconds(1),
                     ),
@@ -263,32 +263,29 @@ class PostgresConversationRepositoryIntegrationTest {
     private fun createRequest(
         conversationRef: String = "conversation-1",
         clientSubjectRef: String = "client-subject-1",
-    ): CreateBusinessClientConversationRequest =
-        CreateBusinessClientConversationRequest(
-            principal = businessPrincipal,
-            command =
-                CreateBusinessClientConversationCommand(
-                    conversationRef = conversationRef,
-                    clientSubjectRef = clientSubjectRef,
-                    requestedAt = BASE_TIME,
-                ),
-        )
+    ): CreateBusinessClientConversationRequest = CreateBusinessClientConversationRequest(
+        principal = businessPrincipal,
+        command =
+        CreateBusinessClientConversationCommand(
+            conversationRef = conversationRef,
+            clientSubjectRef = clientSubjectRef,
+            requestedAt = BASE_TIME,
+        ),
+    )
 
-    private fun b4ApplicationConfig(): PostgresDatabaseConfig =
-        PostgresDatabaseConfig(
-            jdbcUrl = requiredEnvironment("CONNECT_LAB_B4_POSTGRES_APP_JDBC_URL"),
-            user = requiredEnvironment("CONNECT_LAB_B4_POSTGRES_APP_USER"),
-            password = requiredEnvironment("CONNECT_LAB_B4_POSTGRES_APP_PASSWORD"),
-            maximumPoolSize = 16,
-        )
+    private fun b4ApplicationConfig(): PostgresDatabaseConfig = PostgresDatabaseConfig(
+        jdbcUrl = requiredEnvironment("CONNECT_LAB_B4_POSTGRES_APP_JDBC_URL"),
+        user = requiredEnvironment("CONNECT_LAB_B4_POSTGRES_APP_USER"),
+        password = requiredEnvironment("CONNECT_LAB_B4_POSTGRES_APP_PASSWORD"),
+        maximumPoolSize = 16,
+    )
 
-    private fun requiredEnvironment(name: String): String =
-        System.getenv(name)?.takeIf(String::isNotBlank)
-            ?: error("Missing required environment variable: $name")
+    private fun requiredEnvironment(name: String): String = System.getenv(name)?.takeIf(String::isNotBlank)
+        ?: error("Missing required environment variable: $name")
 
     private fun resetDatabase() {
         executeAdmin(
-            "TRUNCATE connect.business_client_conversation_keys, connect.message_identities, connect.messages, connect.conversation_participants, connect.conversations CASCADE",
+            "TRUNCATE connect.notification_outbox, connect.push_device_registrations, connect.business_client_conversation_keys, connect.message_identities, connect.messages, connect.conversation_participants, connect.conversations CASCADE",
         )
     }
 
@@ -298,15 +295,14 @@ class PostgresConversationRepositoryIntegrationTest {
         }
     }
 
-    private fun scalarLong(sql: String): Long =
-        adminDataSource.connection.use { connection ->
-            connection.createStatement().use { statement ->
-                statement.executeQuery(sql).use { resultSet ->
-                    check(resultSet.next())
-                    resultSet.getLong(1)
-                }
+    private fun scalarLong(sql: String): Long = adminDataSource.connection.use { connection ->
+        connection.createStatement().use { statement ->
+            statement.executeQuery(sql).use { resultSet ->
+                check(resultSet.next())
+                resultSet.getLong(1)
             }
         }
+    }
 
     companion object {
         private val BASE_TIME: Instant = Instant.parse("2026-08-11T22:00:00Z")

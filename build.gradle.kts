@@ -108,6 +108,7 @@ tasks.register<Test>("semanticAcceptanceTest") {
         includeTestsMatching("*.PrivacyAwarePresenceAggregatorTest")
         includeTestsMatching("*.RedisEphemeralSignalResilienceIntegrationTest")
         includeTestsMatching("*.ProtectedPushTokenCodecTest")
+        includeTestsMatching("*.NotificationOutboxIntentTest")
     }
 }
 
@@ -118,6 +119,17 @@ tasks.register<Test>("pushDeviceRegistryTest") {
     classpath = sourceSets.test.get().runtimeClasspath
     filter {
         includeTestsMatching("*.ProtectedPushTokenCodecTest")
+    }
+}
+
+tasks.register<Test>("notificationOutboxTest") {
+    description = "Verifies minimised durable notification intents, bounded leases, retries, and dead letters."
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    filter {
+        includeTestsMatching("*.DurableTextPersistenceModelContractTest")
+        includeTestsMatching("*.NotificationOutboxIntentTest")
     }
 }
 

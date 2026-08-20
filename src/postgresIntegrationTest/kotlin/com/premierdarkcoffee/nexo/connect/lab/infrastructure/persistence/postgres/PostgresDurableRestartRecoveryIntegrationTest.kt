@@ -48,10 +48,7 @@ class PostgresDurableRestartRecoveryIntegrationTest {
         }
     }
 
-    private fun seedDurableState(
-        admin: HikariDataSource,
-        app: HikariDataSource,
-    ) {
+    private fun seedDurableState(admin: HikariDataSource, app: HikariDataSource) {
         val conversations = PostgresConversationRepository(app)
         val messages = PostgresDurableTextRepository(app)
         val history = PostgresDurableMessageHistoryRepository(app)
@@ -71,10 +68,7 @@ class PostgresDurableRestartRecoveryIntegrationTest {
         assertDurableCounts(admin, expectedMessages = 3L)
     }
 
-    private fun verifyAndContinueDurableState(
-        admin: HikariDataSource,
-        app: HikariDataSource,
-    ) {
+    private fun verifyAndContinueDurableState(admin: HikariDataSource, app: HikariDataSource) {
         val conversations = PostgresConversationRepository(app)
         val messages = PostgresDurableTextRepository(app)
         val history = PostgresDurableMessageHistoryRepository(app)
@@ -125,16 +119,15 @@ class PostgresDurableRestartRecoveryIntegrationTest {
 
     private fun createConversationRequest(
         conversationRef: String = CONVERSATION_REF,
-    ): CreateBusinessClientConversationRequest =
-        CreateBusinessClientConversationRequest(
-            principal = businessPrincipal,
-            command =
-                CreateBusinessClientConversationCommand(
-                    conversationRef = conversationRef,
-                    clientSubjectRef = clientPrincipal.subjectRef,
-                    requestedAt = BASE_TIME,
-                ),
-        )
+    ): CreateBusinessClientConversationRequest = CreateBusinessClientConversationRequest(
+        principal = businessPrincipal,
+        command =
+        CreateBusinessClientConversationCommand(
+            conversationRef = conversationRef,
+            clientSubjectRef = clientPrincipal.subjectRef,
+            requestedAt = BASE_TIME,
+        ),
+    )
 
     private fun messageRequest(
         index: Int,
@@ -145,78 +138,71 @@ class PostgresDurableRestartRecoveryIntegrationTest {
         return DurableTextWriteRequest(
             principal = principal,
             command =
-                SendTextMessageCommand(
-                    conversationRef = CONVERSATION_REF,
-                    senderSubjectRef = principal.subjectRef,
-                    identity =
-                        ClientMessageIdentity(
-                            clientMessageRef = "b7-$sender-client-$index",
-                            idempotencyKey = "b7-$sender-idempotency-$index",
-                        ),
-                    body = TextMessageBody("B7 durable body $index"),
+            SendTextMessageCommand(
+                conversationRef = CONVERSATION_REF,
+                senderSubjectRef = principal.subjectRef,
+                identity =
+                ClientMessageIdentity(
+                    clientMessageRef = "b7-$sender-client-$index",
+                    idempotencyKey = "b7-$sender-idempotency-$index",
                 ),
+                body = TextMessageBody("B7 durable body $index"),
+            ),
             serverMessageRef = serverMessageRef,
             acceptedAtServer = BASE_TIME.plusSeconds(index * 10L),
         )
     }
 
-    private fun committedSequence(
-        repository: PostgresDurableTextRepository,
-        request: DurableTextWriteRequest,
-    ): Long = assertIs<DurableTextRepositoryResult.Committed>(repository.persist(request)).sequence.value
+    private fun committedSequence(repository: PostgresDurableTextRepository, request: DurableTextWriteRequest): Long =
+        assertIs<DurableTextRepositoryResult.Committed>(repository.persist(request)).sequence.value
 
     private fun loadHistory(
         repository: PostgresDurableMessageHistoryRepository,
         pageSize: Int = LoadDurableMessageHistoryRequest.DEFAULT_PAGE_SIZE,
         cursor: DurableMessageHistoryCursor? = null,
-    ) =
-        assertIs<DurableMessageHistoryResult.Loaded>(
-            repository.load(
-                LoadDurableMessageHistoryRequest(
-                    principal = clientPrincipal,
-                    conversationRef = CONVERSATION_REF,
-                    pageSize = pageSize,
-                    cursor = cursor,
-                ),
+    ) = assertIs<DurableMessageHistoryResult.Loaded>(
+        repository.load(
+            LoadDurableMessageHistoryRequest(
+                principal = clientPrincipal,
+                conversationRef = CONVERSATION_REF,
+                pageSize = pageSize,
+                cursor = cursor,
             ),
-        ).page
+        ),
+    ).page
 
     private fun listedConversationRefs(repository: PostgresConversationRepository): List<String> =
         assertIs<ConversationListingResult.Listed>(
             repository.listForParticipant(ListConversationsRequest(businessPrincipal)),
         ).page.items.map { it.conversationRef }
 
-    private fun durableState(admin: HikariDataSource): List<Any> =
-        admin.connection.use { connection ->
-            connection.prepareStatement(
-                """
+    private fun durableState(admin: HikariDataSource): List<Any> = admin.connection.use { connection ->
+        connection.prepareStatement(
+            """
                 SELECT last_message_sequence, version, last_activity_at,
                        (SELECT count(*) FROM connect.messages WHERE conversation_ref = ?),
                        (SELECT count(*) FROM connect.message_identities WHERE conversation_ref = ?)
                 FROM connect.conversations
                 WHERE conversation_ref = ?
-                """.trimIndent(),
-            ).use { statement ->
-                statement.setString(1, CONVERSATION_REF)
-                statement.setString(2, CONVERSATION_REF)
-                statement.setString(3, CONVERSATION_REF)
-                statement.executeQuery().use { resultSet ->
-                    check(resultSet.next())
-                    listOf(
-                        resultSet.getLong(1),
-                        resultSet.getLong(2),
-                        resultSet.getTimestamp(3).toInstant(),
-                        resultSet.getLong(4),
-                        resultSet.getLong(5),
-                    )
-                }
+            """.trimIndent(),
+        ).use { statement ->
+            statement.setString(1, CONVERSATION_REF)
+            statement.setString(2, CONVERSATION_REF)
+            statement.setString(3, CONVERSATION_REF)
+            statement.executeQuery().use { resultSet ->
+                check(resultSet.next())
+                listOf(
+                    resultSet.getLong(1),
+                    resultSet.getLong(2),
+                    resultSet.getTimestamp(3).toInstant(),
+                    resultSet.getLong(4),
+                    resultSet.getLong(5),
+                )
             }
         }
+    }
 
-    private fun assertDurableCounts(
-        admin: HikariDataSource,
-        expectedMessages: Long,
-    ) {
+    private fun assertDurableCounts(admin: HikariDataSource, expectedMessages: Long) {
         assertEquals(
             listOf(1L, 2L, 1L, expectedMessages, expectedMessages),
             admin.connection.use { connection ->
@@ -243,7 +229,7 @@ class PostgresDurableRestartRecoveryIntegrationTest {
         admin.connection.use { connection ->
             connection.createStatement().use { statement ->
                 statement.execute(
-                    "TRUNCATE connect.business_client_conversation_keys, connect.message_identities, connect.messages, connect.conversation_participants, connect.conversations CASCADE",
+                    "TRUNCATE connect.notification_outbox, connect.push_device_registrations, connect.business_client_conversation_keys, connect.message_identities, connect.messages, connect.conversation_participants, connect.conversations CASCADE",
                 )
             }
         }
@@ -257,25 +243,22 @@ class PostgresDurableRestartRecoveryIntegrationTest {
         }
     }
 
-    private fun applicationConfig(): PostgresDatabaseConfig =
-        PostgresDatabaseConfig(
-            jdbcUrl = requiredEnvironment("CONNECT_LAB_B4_POSTGRES_APP_JDBC_URL"),
-            user = requiredEnvironment("CONNECT_LAB_B4_POSTGRES_APP_USER"),
-            password = requiredEnvironment("CONNECT_LAB_B4_POSTGRES_APP_PASSWORD"),
-            maximumPoolSize = 8,
-        )
+    private fun applicationConfig(): PostgresDatabaseConfig = PostgresDatabaseConfig(
+        jdbcUrl = requiredEnvironment("CONNECT_LAB_B4_POSTGRES_APP_JDBC_URL"),
+        user = requiredEnvironment("CONNECT_LAB_B4_POSTGRES_APP_USER"),
+        password = requiredEnvironment("CONNECT_LAB_B4_POSTGRES_APP_PASSWORD"),
+        maximumPoolSize = 8,
+    )
 
-    private fun recoveryPhase(): RecoveryPhase =
-        when (System.getenv("CONNECT_LAB_B7_RECOVERY_PHASE")?.uppercase()) {
-            null, "", "SELF_CONTAINED" -> RecoveryPhase.SELF_CONTAINED
-            "SEED" -> RecoveryPhase.SEED
-            "VERIFY" -> RecoveryPhase.VERIFY
-            else -> error("CONNECT_LAB_B7_RECOVERY_PHASE is invalid")
-        }
+    private fun recoveryPhase(): RecoveryPhase = when (System.getenv("CONNECT_LAB_B7_RECOVERY_PHASE")?.uppercase()) {
+        null, "", "SELF_CONTAINED" -> RecoveryPhase.SELF_CONTAINED
+        "SEED" -> RecoveryPhase.SEED
+        "VERIFY" -> RecoveryPhase.VERIFY
+        else -> error("CONNECT_LAB_B7_RECOVERY_PHASE is invalid")
+    }
 
-    private fun requiredEnvironment(name: String): String =
-        System.getenv(name)?.takeIf(String::isNotBlank)
-            ?: error("Missing required environment variable: $name")
+    private fun requiredEnvironment(name: String): String = System.getenv(name)?.takeIf(String::isNotBlank)
+        ?: error("Missing required environment variable: $name")
 
     private enum class RecoveryPhase {
         SELF_CONTAINED,

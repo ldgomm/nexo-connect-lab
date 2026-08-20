@@ -5,11 +5,11 @@
 - Programme: `NEXO_CONNECT_LAB`
 - Repository: `connect-lab`
 - Branch: `main`
-- Accepted phase: `CONNECT.20`
-- Accepted HEAD: `3c96ce2790ba641afc28e15b662569d2204b36fa`
+- Accepted phase: `CONNECT.21`
+- Accepted HEAD: `106f8d6664f58f8e976315fd84f946ad2826c75e`
 - Immutable user baseline: `558d702bd5e7729721cde71d0e3080513798dcdd`
-- Active phase: `CONNECT.21`
-- Next phase after acceptance: `CONNECT.22`
+- Active phase: `CONNECT.22`
+- Next phase after acceptance: `CONNECT.23`
 
 `CONNECT.07` is the accepted governance commit `e330359...`; its historical
 subject used the temporary label `[CONNECT.01]`. The hash is preserved and the
@@ -125,6 +125,13 @@ Every operation enforces actor-shaped scopes, uniform denial and optimistic
 version fencing; revocation cryptographically erases stored token material.
 Public registry results expose metadata only, and provider delivery remains
 deferred to the notification outbox and adapter phases.
+
+`CONNECT.22` adds the durable notification outbox. A newly accepted message,
+its idempotency binding and every eligible recipient-device intent share one
+PostgreSQL transaction. Intents carry references only, use bounded claim
+leases, retries and dead letters, and never store message bodies or provider
+tokens. Push remains a best-effort notification path; APNs delivery is deferred
+to `CONNECT.23`.
 
 The empty `docker-compose.watch.yml` is tracked by the accepted user baseline.
 Later phase commits must preserve it byte-for-byte unless the user explicitly

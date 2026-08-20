@@ -53,8 +53,16 @@ class PostgresDurableTextRepositoryIntegrationTest {
         assertEquals(1, committed.sequence.value)
         assertEquals(1, scalarLong("SELECT count(*) FROM connect.messages"))
         assertEquals(1, scalarLong("SELECT count(*) FROM connect.message_identities"))
-        assertEquals(1, scalarLong("SELECT last_message_sequence FROM connect.conversations WHERE conversation_ref = 'conversation-1'"))
-        assertEquals(1, scalarLong("SELECT version FROM connect.conversations WHERE conversation_ref = 'conversation-1'"))
+        assertEquals(
+            1,
+            scalarLong(
+                "SELECT last_message_sequence FROM connect.conversations WHERE conversation_ref = 'conversation-1'",
+            ),
+        )
+        assertEquals(
+            1,
+            scalarLong("SELECT version FROM connect.conversations WHERE conversation_ref = 'conversation-1'"),
+        )
     }
 
     @Test
@@ -68,8 +76,16 @@ class PostgresDurableTextRepositoryIntegrationTest {
         assertEquals(first.serverMessageRef, replay.serverMessageRef)
         assertEquals(first.sequence, replay.sequence)
         assertEquals(1, scalarLong("SELECT count(*) FROM connect.messages"))
-        assertEquals(1, scalarLong("SELECT last_message_sequence FROM connect.conversations WHERE conversation_ref = 'conversation-1'"))
-        assertEquals(1, scalarLong("SELECT version FROM connect.conversations WHERE conversation_ref = 'conversation-1'"))
+        assertEquals(
+            1,
+            scalarLong(
+                "SELECT last_message_sequence FROM connect.conversations WHERE conversation_ref = 'conversation-1'",
+            ),
+        )
+        assertEquals(
+            1,
+            scalarLong("SELECT version FROM connect.conversations WHERE conversation_ref = 'conversation-1'"),
+        )
     }
 
     @Test
@@ -112,7 +128,12 @@ class PostgresDurableTextRepositoryIntegrationTest {
             assertIs<DurableTextRepositoryResult.Conflict>(payloadReuse).reason,
         )
         assertEquals(1, scalarLong("SELECT count(*) FROM connect.messages"))
-        assertEquals(1, scalarLong("SELECT last_message_sequence FROM connect.conversations WHERE conversation_ref = 'conversation-1'"))
+        assertEquals(
+            1,
+            scalarLong(
+                "SELECT last_message_sequence FROM connect.conversations WHERE conversation_ref = 'conversation-1'",
+            ),
+        )
     }
 
     @Test
@@ -128,14 +149,18 @@ class PostgresDurableTextRepositoryIntegrationTest {
             assertIs<DurableTextRepositoryResult.Denied>(scopeDenied).reason,
         )
 
-        execute("UPDATE connect.conversation_participants SET status = 'BLOCKED' WHERE conversation_ref = 'conversation-1' AND subject_ref = 'business-subject-1'")
+        execute(
+            "UPDATE connect.conversation_participants SET status = 'BLOCKED' WHERE conversation_ref = 'conversation-1' AND subject_ref = 'business-subject-1'",
+        )
         val participantDenied = repository.persist(request(index = 2))
         assertEquals(
             DurableTextAuthorizationDecision.DENY_PARTICIPANT_STATE,
             assertIs<DurableTextRepositoryResult.Denied>(participantDenied).reason,
         )
 
-        execute("UPDATE connect.conversation_participants SET status = 'ACTIVE', capabilities = ARRAY[]::text[] WHERE conversation_ref = 'conversation-1' AND subject_ref = 'business-subject-1'")
+        execute(
+            "UPDATE connect.conversation_participants SET status = 'ACTIVE', capabilities = ARRAY[]::text[] WHERE conversation_ref = 'conversation-1' AND subject_ref = 'business-subject-1'",
+        )
         val capabilityDenied = repository.persist(request(index = 3))
         assertEquals(
             DurableTextAuthorizationDecision.DENY_CAPABILITY,
@@ -143,7 +168,12 @@ class PostgresDurableTextRepositoryIntegrationTest {
         )
 
         assertEquals(0, scalarLong("SELECT count(*) FROM connect.messages"))
-        assertEquals(0, scalarLong("SELECT last_message_sequence FROM connect.conversations WHERE conversation_ref = 'conversation-1'"))
+        assertEquals(
+            0,
+            scalarLong(
+                "SELECT last_message_sequence FROM connect.conversations WHERE conversation_ref = 'conversation-1'",
+            ),
+        )
     }
 
     @Test
@@ -173,8 +203,16 @@ class PostgresDurableTextRepositoryIntegrationTest {
 
             assertEquals((1L..count.toLong()).toList(), sequences)
             assertEquals(count.toLong(), scalarLong("SELECT count(*) FROM connect.messages"))
-            assertEquals(count.toLong(), scalarLong("SELECT last_message_sequence FROM connect.conversations WHERE conversation_ref = 'conversation-1'"))
-            assertEquals(count.toLong(), scalarLong("SELECT version FROM connect.conversations WHERE conversation_ref = 'conversation-1'"))
+            assertEquals(
+                count.toLong(),
+                scalarLong(
+                    "SELECT last_message_sequence FROM connect.conversations WHERE conversation_ref = 'conversation-1'",
+                ),
+            )
+            assertEquals(
+                count.toLong(),
+                scalarLong("SELECT version FROM connect.conversations WHERE conversation_ref = 'conversation-1'"),
+            )
         } finally {
             executor.shutdownNow()
         }
@@ -214,7 +252,12 @@ class PostgresDurableTextRepositoryIntegrationTest {
             assertTrue(replays.all { it.sequence == committed.single().sequence })
             assertEquals(1, scalarLong("SELECT count(*) FROM connect.messages"))
             assertEquals(1, scalarLong("SELECT count(*) FROM connect.message_identities"))
-            assertEquals(1, scalarLong("SELECT last_message_sequence FROM connect.conversations WHERE conversation_ref = 'conversation-1'"))
+            assertEquals(
+                1,
+                scalarLong(
+                    "SELECT last_message_sequence FROM connect.conversations WHERE conversation_ref = 'conversation-1'",
+                ),
+            )
         } finally {
             executor.shutdownNow()
         }
@@ -235,8 +278,16 @@ class PostgresDurableTextRepositoryIntegrationTest {
 
         assertEquals(1, scalarLong("SELECT count(*) FROM connect.messages"))
         assertEquals(1, scalarLong("SELECT count(*) FROM connect.message_identities"))
-        assertEquals(1, scalarLong("SELECT last_message_sequence FROM connect.conversations WHERE conversation_ref = 'conversation-1'"))
-        assertEquals(1, scalarLong("SELECT version FROM connect.conversations WHERE conversation_ref = 'conversation-1'"))
+        assertEquals(
+            1,
+            scalarLong(
+                "SELECT last_message_sequence FROM connect.conversations WHERE conversation_ref = 'conversation-1'",
+            ),
+        )
+        assertEquals(
+            1,
+            scalarLong("SELECT version FROM connect.conversations WHERE conversation_ref = 'conversation-1'"),
+        )
 
         val next = assertIs<DurableTextRepositoryResult.Committed>(repository.persist(request(index = 3)))
         assertEquals(2, next.sequence.value)
@@ -260,13 +311,18 @@ class PostgresDurableTextRepositoryIntegrationTest {
             MessageConflictReason.SCOPE_MISMATCH,
             assertIs<DurableTextRepositoryResult.Conflict>(result).reason,
         )
-        assertEquals(0, scalarLong("SELECT last_message_sequence FROM connect.conversations WHERE conversation_ref = 'conversation-2'"))
+        assertEquals(
+            0,
+            scalarLong(
+                "SELECT last_message_sequence FROM connect.conversations WHERE conversation_ref = 'conversation-2'",
+            ),
+        )
         assertEquals(1, scalarLong("SELECT count(*) FROM connect.messages"))
     }
 
     private fun resetDatabase() {
         execute(
-            "TRUNCATE connect.message_identities, connect.messages, connect.conversation_participants, connect.conversations RESTART IDENTITY CASCADE",
+            "TRUNCATE connect.notification_outbox, connect.push_device_registrations, connect.message_identities, connect.messages, connect.conversation_participants, connect.conversations RESTART IDENTITY CASCADE",
         )
     }
 
@@ -322,23 +378,22 @@ class PostgresDurableTextRepositoryIntegrationTest {
         clientMessageRef: String = "client-message-$index",
         body: String = "Message $index",
         serverMessageRef: String = "server-message-$index",
-    ): DurableTextWriteRequest =
-        DurableTextWriteRequest(
-            principal = principal,
-            command =
-                SendTextMessageCommand(
-                    conversationRef = conversationRef,
-                    senderSubjectRef = principal.subjectRef,
-                    identity =
-                        ClientMessageIdentity(
-                            clientMessageRef = clientMessageRef,
-                            idempotencyKey = idempotencyKey,
-                        ),
-                    body = TextMessageBody(body),
-                ),
-            serverMessageRef = serverMessageRef,
-            acceptedAtServer = BASE_TIME.plusSeconds(index.toLong()),
-        )
+    ): DurableTextWriteRequest = DurableTextWriteRequest(
+        principal = principal,
+        command =
+        SendTextMessageCommand(
+            conversationRef = conversationRef,
+            senderSubjectRef = principal.subjectRef,
+            identity =
+            ClientMessageIdentity(
+                clientMessageRef = clientMessageRef,
+                idempotencyKey = idempotencyKey,
+            ),
+            body = TextMessageBody(body),
+        ),
+        serverMessageRef = serverMessageRef,
+        acceptedAtServer = BASE_TIME.plusSeconds(index.toLong()),
+    )
 
     private fun execute(sql: String) {
         dataSource.connection.use { connection ->
@@ -346,15 +401,14 @@ class PostgresDurableTextRepositoryIntegrationTest {
         }
     }
 
-    private fun scalarLong(sql: String): Long =
-        dataSource.connection.use { connection ->
-            connection.createStatement().use { statement ->
-                statement.executeQuery(sql).use { resultSet ->
-                    check(resultSet.next())
-                    resultSet.getLong(1)
-                }
+    private fun scalarLong(sql: String): Long = dataSource.connection.use { connection ->
+        connection.createStatement().use { statement ->
+            statement.executeQuery(sql).use { resultSet ->
+                check(resultSet.next())
+                resultSet.getLong(1)
             }
         }
+    }
 
     companion object {
         private val BASE_TIME: Instant = Instant.parse("2026-08-11T20:00:00Z")

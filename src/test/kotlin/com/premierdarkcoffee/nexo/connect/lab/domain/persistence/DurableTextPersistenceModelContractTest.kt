@@ -34,6 +34,7 @@ class DurableTextPersistenceModelContractTest {
                 DurableTextWriteStage.ALLOCATE_NEXT_SEQUENCE,
                 DurableTextWriteStage.INSERT_MESSAGE,
                 DurableTextWriteStage.INSERT_IDEMPOTENCY_BINDING,
+                DurableTextWriteStage.INSERT_NOTIFICATION_OUTBOX_INTENTS,
                 DurableTextWriteStage.COMMIT,
             ),
             DurableTextWriteContract.transactionStages,
@@ -53,6 +54,9 @@ class DurableTextPersistenceModelContractTest {
                 DurablePersistenceConstraint.MESSAGE_IDENTITY_BINDING_ONE_TO_ONE,
                 DurablePersistenceConstraint.MESSAGE_SENDER_PARTICIPANT_FOREIGN_KEY,
                 DurablePersistenceConstraint.IDENTITY_MESSAGE_FOREIGN_KEY,
+                DurablePersistenceConstraint.NOTIFICATION_MESSAGE_TARGET_UNIQUE,
+                DurablePersistenceConstraint.NOTIFICATION_MESSAGE_FOREIGN_KEY,
+                DurablePersistenceConstraint.NOTIFICATION_REGISTRATION_FOREIGN_KEY,
             ),
             DurableTextWriteContract.persistenceConstraints,
         )
@@ -105,9 +109,9 @@ class DurableTextPersistenceModelContractTest {
         assertFailsWith<IllegalArgumentException> {
             bundle(
                 identityBinding =
-                    identityBinding(
-                        payloadFingerprint = MessagePayloadFingerprint.forText(TextMessageBody("Changed")),
-                    ),
+                identityBinding(
+                    payloadFingerprint = MessagePayloadFingerprint.forText(TextMessageBody("Changed")),
+                ),
             )
         }
     }
@@ -120,10 +124,10 @@ class DurableTextPersistenceModelContractTest {
         assertFailsWith<IllegalArgumentException> {
             bundle(
                 participant =
-                    participant(
-                        status = ConversationParticipantStatus.LEFT,
-                        leftAt = acceptedAt,
-                    ),
+                participant(
+                    status = ConversationParticipantStatus.LEFT,
+                    leftAt = acceptedAt,
+                ),
             )
         }
         assertFailsWith<IllegalArgumentException> {
@@ -186,31 +190,29 @@ class DurableTextPersistenceModelContractTest {
         participant: ConversationParticipantPersistenceRecord = participant(),
         message: TextMessagePersistenceRecord = message(),
         identityBinding: MessageIdentityPersistenceRecord = identityBinding(),
-    ): DurableTextPersistenceBundle =
-        DurableTextPersistenceBundle(
-            conversation = conversation,
-            senderParticipant = participant,
-            message = message,
-            identityBinding = identityBinding,
-        )
+    ): DurableTextPersistenceBundle = DurableTextPersistenceBundle(
+        conversation = conversation,
+        senderParticipant = participant,
+        message = message,
+        identityBinding = identityBinding,
+    )
 
     private fun conversation(
         conversationRef: String = "conversation-alpha",
         type: ConversationType = ConversationType.BUSINESS_CLIENT,
         status: ConversationStatus = ConversationStatus.ACTIVE,
         sequence: Long = 1,
-    ): ConversationPersistenceRecord =
-        ConversationPersistenceRecord(
-            conversationRef = conversationRef,
-            type = type,
-            platformScopeRef = "platform-alpha",
-            organizationScopeRef = "organization-alpha",
-            businessScopeRef = "business-alpha",
-            status = status,
-            createdAt = acceptedAt.minusSeconds(60),
-            lastMessageSequence = ConversationSequence(sequence),
-            version = 1,
-        )
+    ): ConversationPersistenceRecord = ConversationPersistenceRecord(
+        conversationRef = conversationRef,
+        type = type,
+        platformScopeRef = "platform-alpha",
+        organizationScopeRef = "organization-alpha",
+        businessScopeRef = "business-alpha",
+        status = status,
+        createdAt = acceptedAt.minusSeconds(60),
+        lastMessageSequence = ConversationSequence(sequence),
+        version = 1,
+    )
 
     private fun participant(
         conversationRef: String = "conversation-alpha",
@@ -218,32 +220,30 @@ class DurableTextPersistenceModelContractTest {
         capabilities: Set<ConversationCapability> = setOf(ConversationCapability.SEND_TEXT),
         leftAt: Instant? = null,
         actorType: ConnectActorType = ConnectActorType.CLIENT,
-    ): ConversationParticipantPersistenceRecord =
-        ConversationParticipantPersistenceRecord(
-            conversationRef = conversationRef,
-            subjectRef = "client-alpha",
-            actorType = actorType,
-            status = status,
-            capabilities = capabilities,
-            joinedAt = acceptedAt.minusSeconds(1),
-            leftAt = leftAt,
-        )
+    ): ConversationParticipantPersistenceRecord = ConversationParticipantPersistenceRecord(
+        conversationRef = conversationRef,
+        subjectRef = "client-alpha",
+        actorType = actorType,
+        status = status,
+        capabilities = capabilities,
+        joinedAt = acceptedAt.minusSeconds(1),
+        leftAt = leftAt,
+    )
 
     private fun message(
         conversationRef: String = "conversation-alpha",
         sequence: Long = 1,
         senderSubjectRef: String = "client-alpha",
         senderActorType: ConnectActorType = ConnectActorType.CLIENT,
-    ): TextMessagePersistenceRecord =
-        TextMessagePersistenceRecord(
-            serverMessageRef = "message-alpha",
-            conversationRef = conversationRef,
-            sequence = ConversationSequence(sequence),
-            senderSubjectRef = senderSubjectRef,
-            senderActorType = senderActorType,
-            body = TextMessageBody("Hello"),
-            acceptedAtServer = acceptedAt,
-        )
+    ): TextMessagePersistenceRecord = TextMessagePersistenceRecord(
+        serverMessageRef = "message-alpha",
+        conversationRef = conversationRef,
+        sequence = ConversationSequence(sequence),
+        senderSubjectRef = senderSubjectRef,
+        senderActorType = senderActorType,
+        body = TextMessageBody("Hello"),
+        acceptedAtServer = acceptedAt,
+    )
 
     private fun identityBinding(
         platformScopeRef: String = "platform-alpha",
@@ -255,18 +255,17 @@ class DurableTextPersistenceModelContractTest {
             MessagePayloadFingerprint.forText(TextMessageBody("Hello")),
         clientMessageRef: String = "client-message-alpha",
         idempotencyKey: String = "idempotency-alpha",
-    ): MessageIdentityPersistenceRecord =
-        MessageIdentityPersistenceRecord(
-            platformScopeRef = platformScopeRef,
-            conversationRef = conversationRef,
-            senderSubjectRef = senderSubjectRef,
-            identity =
-                ClientMessageIdentity(
-                    clientMessageRef = clientMessageRef,
-                    idempotencyKey = idempotencyKey,
-                ),
-            payloadFingerprint = payloadFingerprint,
-            serverMessageRef = serverMessageRef,
-            sequence = ConversationSequence(sequence),
-        )
+    ): MessageIdentityPersistenceRecord = MessageIdentityPersistenceRecord(
+        platformScopeRef = platformScopeRef,
+        conversationRef = conversationRef,
+        senderSubjectRef = senderSubjectRef,
+        identity =
+        ClientMessageIdentity(
+            clientMessageRef = clientMessageRef,
+            idempotencyKey = idempotencyKey,
+        ),
+        payloadFingerprint = payloadFingerprint,
+        serverMessageRef = serverMessageRef,
+        sequence = ConversationSequence(sequence),
+    )
 }

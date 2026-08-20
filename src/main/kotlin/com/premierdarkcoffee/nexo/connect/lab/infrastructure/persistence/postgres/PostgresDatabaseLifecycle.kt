@@ -4,9 +4,11 @@ import com.premierdarkcoffee.nexo.connect.lab.application.persistence.Conversati
 import com.premierdarkcoffee.nexo.connect.lab.application.persistence.DurableMessageHistoryRepository
 import com.premierdarkcoffee.nexo.connect.lab.application.persistence.DurableReceiptCursorRepository
 import com.premierdarkcoffee.nexo.connect.lab.application.persistence.DurableTextRepository
+import com.premierdarkcoffee.nexo.connect.lab.application.persistence.NotificationOutboxRepository
 import com.premierdarkcoffee.nexo.connect.lab.infrastructure.config.connectLabConfig
 import com.zaxxer.hikari.HikariDataSource
-import io.ktor.server.application.*
+import io.ktor.server.application.Application
+import io.ktor.server.application.ApplicationStopped
 import io.ktor.util.AttributeKey
 import org.flywaydb.core.Flyway
 
@@ -14,11 +16,11 @@ interface DatabaseReadinessProbe {
     fun isReady(): Boolean
 }
 
-internal interface ManagedDatabaseRuntime : DatabaseReadinessProbe, AutoCloseable
+internal interface ManagedDatabaseRuntime :
+    DatabaseReadinessProbe,
+    AutoCloseable
 
-internal class PostgresDatabaseRuntime(
-    private val dataSource: HikariDataSource,
-) : ManagedDatabaseRuntime {
+internal class PostgresDatabaseRuntime(private val dataSource: HikariDataSource) : ManagedDatabaseRuntime {
     override fun isReady(): Boolean {
         if (dataSource.isClosed) return false
 
@@ -54,12 +56,16 @@ private val DurableMessageHistoryRepositoryKey =
 private val DurableReceiptCursorRepositoryKey =
     AttributeKey<DurableReceiptCursorRepository>("NexoConnectLabDurableReceiptCursorRepository")
 
+private val NotificationOutboxRepositoryKey =
+    AttributeKey<NotificationOutboxRepository>("NexoConnectLabNotificationOutboxRepository")
+
 internal fun Application.installManagedDatabaseRuntime(
     runtime: ManagedDatabaseRuntime,
     conversationRepository: ConversationRepository? = null,
     durableTextRepository: DurableTextRepository? = null,
     durableMessageHistoryRepository: DurableMessageHistoryRepository? = null,
     durableReceiptCursorRepository: DurableReceiptCursorRepository? = null,
+    notificationOutboxRepository: NotificationOutboxRepository? = null,
 ) {
     check(databaseReadinessProbeOrNull() == null) { "PostgreSQL database runtime is already installed" }
     attributes.put(DatabaseRuntimeKey, runtime)
@@ -83,26 +89,33 @@ internal fun Application.installManagedDatabaseRuntime(
         }
         attributes.put(DurableReceiptCursorRepositoryKey, repository)
     }
+    notificationOutboxRepository?.let { repository ->
+        check(notificationOutboxRepositoryOrNull() == null) {
+            "Notification outbox repository is already installed"
+        }
+        attributes.put(NotificationOutboxRepositoryKey, repository)
+    }
     monitor.subscribe(ApplicationStopped) {
         runtime.close()
-        log.info("CONNECT_DATABASE_POOL=CLOSED")
+        environment.log.info("CONNECT_DATABASE_POOL=CLOSED")
     }
 }
 
-fun Application.databaseReadinessProbeOrNull(): DatabaseReadinessProbe? =
-    attributes.getOrNull(DatabaseRuntimeKey)
+fun Application.databaseReadinessProbeOrNull(): DatabaseReadinessProbe? = attributes.getOrNull(DatabaseRuntimeKey)
 
 fun Application.conversationRepositoryOrNull(): ConversationRepository? =
     attributes.getOrNull(ConversationRepositoryKey)
 
-fun Application.durableTextRepositoryOrNull(): DurableTextRepository? =
-    attributes.getOrNull(DurableTextRepositoryKey)
+fun Application.durableTextRepositoryOrNull(): DurableTextRepository? = attributes.getOrNull(DurableTextRepositoryKey)
 
 fun Application.durableMessageHistoryRepositoryOrNull(): DurableMessageHistoryRepository? =
     attributes.getOrNull(DurableMessageHistoryRepositoryKey)
 
 fun Application.durableReceiptCursorRepositoryOrNull(): DurableReceiptCursorRepository? =
     attributes.getOrNull(DurableReceiptCursorRepositoryKey)
+
+fun Application.notificationOutboxRepositoryOrNull(): NotificationOutboxRepository? =
+    attributes.getOrNull(NotificationOutboxRepositoryKey)
 
 fun Application.configurePostgresDatabaseLifecycle() {
     if (!connectLabConfig.databaseLifecycleEnabled) return
@@ -123,8 +136,9 @@ fun Application.configurePostgresDatabaseLifecycle() {
             durableTextRepository = PostgresDurableTextRepository(dataSource),
             durableMessageHistoryRepository = PostgresDurableMessageHistoryRepository(dataSource),
             durableReceiptCursorRepository = PostgresDurableReceiptCursorRepository(dataSource),
+            notificationOutboxRepository = PostgresNotificationOutboxRepository(dataSource),
         )
-        log.info("CONNECT_DATABASE_POOL=READY")
+        environment.log.info("CONNECT_DATABASE_POOL=READY")
     } catch (failure: Throwable) {
         dataSource.close()
         throw failure

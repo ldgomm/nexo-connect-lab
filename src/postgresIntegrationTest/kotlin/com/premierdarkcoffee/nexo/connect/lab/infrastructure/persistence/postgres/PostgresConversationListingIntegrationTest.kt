@@ -176,8 +176,18 @@ class PostgresConversationListingIntegrationTest {
             assertFailsWith<SQLException> {
                 persistMessage("conversation-1", index = 1, acceptedAt = BASE_TIME.plusSeconds(100))
             }
-            assertEquals(0, scalarLong("SELECT last_message_sequence FROM connect.conversations WHERE conversation_ref = 'conversation-1'"))
-            assertEquals(BASE_TIME, scalarInstant("SELECT last_activity_at FROM connect.conversations WHERE conversation_ref = 'conversation-1'"))
+            assertEquals(
+                0,
+                scalarLong(
+                    "SELECT last_message_sequence FROM connect.conversations WHERE conversation_ref = 'conversation-1'",
+                ),
+            )
+            assertEquals(
+                BASE_TIME,
+                scalarInstant(
+                    "SELECT last_activity_at FROM connect.conversations WHERE conversation_ref = 'conversation-1'",
+                ),
+            )
             assertEquals(0, scalarLong("SELECT count(*) FROM connect.messages"))
         } finally {
             executeAdmin("DROP TRIGGER IF EXISTS reject_b5_message_for_test ON connect.messages")
@@ -196,11 +206,11 @@ class PostgresConversationListingIntegrationTest {
                 CreateBusinessClientConversationRequest(
                     principal = business,
                     command =
-                        CreateBusinessClientConversationCommand(
-                            conversationRef = conversationRef,
-                            clientSubjectRef = clientSubjectRef,
-                            requestedAt = requestedAt,
-                        ),
+                    CreateBusinessClientConversationCommand(
+                        conversationRef = conversationRef,
+                        clientSubjectRef = clientSubjectRef,
+                        requestedAt = requestedAt,
+                    ),
                 ),
             ),
         )
@@ -210,59 +220,53 @@ class PostgresConversationListingIntegrationTest {
         principal: ConnectPrincipal,
         pageSize: Int = ListConversationsRequest.DEFAULT_PAGE_SIZE,
         cursor: ConversationListCursor? = null,
-    ) =
-        assertIs<ConversationListingResult.Listed>(
-            conversationRepository.listForParticipant(
-                ListConversationsRequest(
-                    principal = principal,
-                    pageSize = pageSize,
-                    cursor = cursor,
-                ),
+    ) = assertIs<ConversationListingResult.Listed>(
+        conversationRepository.listForParticipant(
+            ListConversationsRequest(
+                principal = principal,
+                pageSize = pageSize,
+                cursor = cursor,
             ),
-        ).page
+        ),
+    ).page
 
-    private fun listedRefs(result: com.premierdarkcoffee.nexo.connect.lab.domain.conversation.DurableConversationListPage): List<String> =
-        result.items.map { it.conversationRef }
+    private fun listedRefs(
+        result: com.premierdarkcoffee.nexo.connect.lab.domain.conversation.DurableConversationListPage,
+    ): List<String> = result.items.map { it.conversationRef }
 
-    private fun persistMessage(
-        conversationRef: String,
-        index: Int,
-        acceptedAt: Instant,
-    ): DurableTextRepositoryResult =
+    private fun persistMessage(conversationRef: String, index: Int, acceptedAt: Instant): DurableTextRepositoryResult =
         messageRepository.persist(
             DurableTextWriteRequest(
                 principal = businessPrincipal,
                 command =
-                    SendTextMessageCommand(
-                        conversationRef = conversationRef,
-                        senderSubjectRef = businessPrincipal.subjectRef,
-                        identity =
-                            ClientMessageIdentity(
-                                clientMessageRef = "client-message-$index",
-                                idempotencyKey = "idempotency-key-$index",
-                            ),
-                        body = TextMessageBody("Message $index"),
+                SendTextMessageCommand(
+                    conversationRef = conversationRef,
+                    senderSubjectRef = businessPrincipal.subjectRef,
+                    identity =
+                    ClientMessageIdentity(
+                        clientMessageRef = "client-message-$index",
+                        idempotencyKey = "idempotency-key-$index",
                     ),
+                    body = TextMessageBody("Message $index"),
+                ),
                 serverMessageRef = "server-message-$index",
                 acceptedAtServer = acceptedAt,
             ),
         )
 
-    private fun applicationConfig(): PostgresDatabaseConfig =
-        PostgresDatabaseConfig(
-            jdbcUrl = requiredEnvironment("CONNECT_LAB_B4_POSTGRES_APP_JDBC_URL"),
-            user = requiredEnvironment("CONNECT_LAB_B4_POSTGRES_APP_USER"),
-            password = requiredEnvironment("CONNECT_LAB_B4_POSTGRES_APP_PASSWORD"),
-            maximumPoolSize = 16,
-        )
+    private fun applicationConfig(): PostgresDatabaseConfig = PostgresDatabaseConfig(
+        jdbcUrl = requiredEnvironment("CONNECT_LAB_B4_POSTGRES_APP_JDBC_URL"),
+        user = requiredEnvironment("CONNECT_LAB_B4_POSTGRES_APP_USER"),
+        password = requiredEnvironment("CONNECT_LAB_B4_POSTGRES_APP_PASSWORD"),
+        maximumPoolSize = 16,
+    )
 
-    private fun requiredEnvironment(name: String): String =
-        System.getenv(name)?.takeIf(String::isNotBlank)
-            ?: error("Missing required environment variable: $name")
+    private fun requiredEnvironment(name: String): String = System.getenv(name)?.takeIf(String::isNotBlank)
+        ?: error("Missing required environment variable: $name")
 
     private fun resetDatabase() {
         executeAdmin(
-            "TRUNCATE connect.business_client_conversation_keys, connect.message_identities, connect.messages, connect.conversation_participants, connect.conversations CASCADE",
+            "TRUNCATE connect.notification_outbox, connect.push_device_registrations, connect.business_client_conversation_keys, connect.message_identities, connect.messages, connect.conversation_participants, connect.conversations CASCADE",
         )
     }
 
@@ -272,25 +276,23 @@ class PostgresConversationListingIntegrationTest {
         }
     }
 
-    private fun scalarLong(sql: String): Long =
-        adminDataSource.connection.use { connection ->
-            connection.createStatement().use { statement ->
-                statement.executeQuery(sql).use { resultSet ->
-                    check(resultSet.next())
-                    resultSet.getLong(1)
-                }
+    private fun scalarLong(sql: String): Long = adminDataSource.connection.use { connection ->
+        connection.createStatement().use { statement ->
+            statement.executeQuery(sql).use { resultSet ->
+                check(resultSet.next())
+                resultSet.getLong(1)
             }
         }
+    }
 
-    private fun scalarInstant(sql: String): Instant =
-        adminDataSource.connection.use { connection ->
-            connection.createStatement().use { statement ->
-                statement.executeQuery(sql).use { resultSet ->
-                    check(resultSet.next())
-                    resultSet.getTimestamp(1).toInstant()
-                }
+    private fun scalarInstant(sql: String): Instant = adminDataSource.connection.use { connection ->
+        connection.createStatement().use { statement ->
+            statement.executeQuery(sql).use { resultSet ->
+                check(resultSet.next())
+                resultSet.getTimestamp(1).toInstant()
             }
         }
+    }
 
     companion object {
         private val BASE_TIME: Instant = Instant.parse("2026-08-11T23:00:00Z")

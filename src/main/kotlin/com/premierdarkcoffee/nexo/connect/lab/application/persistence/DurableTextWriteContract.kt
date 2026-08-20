@@ -14,6 +14,9 @@ enum class DurablePersistenceConstraint {
     MESSAGE_IDENTITY_BINDING_ONE_TO_ONE,
     MESSAGE_SENDER_PARTICIPANT_FOREIGN_KEY,
     IDENTITY_MESSAGE_FOREIGN_KEY,
+    NOTIFICATION_MESSAGE_TARGET_UNIQUE,
+    NOTIFICATION_MESSAGE_FOREIGN_KEY,
+    NOTIFICATION_REGISTRATION_FOREIGN_KEY,
 }
 
 object DurableTextWriteContract {
@@ -26,6 +29,7 @@ object DurableTextWriteContract {
             DurableTextWriteStage.ALLOCATE_NEXT_SEQUENCE,
             DurableTextWriteStage.INSERT_MESSAGE,
             DurableTextWriteStage.INSERT_IDEMPOTENCY_BINDING,
+            DurableTextWriteStage.INSERT_NOTIFICATION_OUTBOX_INTENTS,
             DurableTextWriteStage.COMMIT,
         )
 
@@ -35,6 +39,9 @@ object DurableTextWriteContract {
     val persistenceConstraints: Set<DurablePersistenceConstraint> =
         DurablePersistenceConstraint.entries.toSet()
 
-    const val claimsExactlyOnceDelivery: Boolean = false
-    const val claimsGlobalMessageOrder: Boolean = false
+    val claimsExactlyOnceDelivery: Boolean
+        get() = false
+
+    val claimsGlobalMessageOrder: Boolean
+        get() = false
 }

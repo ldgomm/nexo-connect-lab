@@ -67,10 +67,10 @@ require_property "$POLICY_FILE" baseline.head 558d702bd5e7729721cde71d0e30805137
 require_property "$POLICY_FILE" baseline.parent e330359dc6602e9a33da891b5fdb64ed8c199f38
 require_property "$POLICY_FILE" baseline.commit_count 31
 require_property "$POLICY_FILE" baseline.subject .
-require_property "$POLICY_FILE" accepted.phase CONNECT.20
-require_property "$POLICY_FILE" accepted.head 3c96ce2790ba641afc28e15b662569d2204b36fa
-require_property "$POLICY_FILE" establishing.phase CONNECT.21
-require_property "$POLICY_FILE" next.phase CONNECT.22
+require_property "$POLICY_FILE" accepted.phase CONNECT.21
+require_property "$POLICY_FILE" accepted.head 106f8d6664f58f8e976315fd84f946ad2826c75e
+require_property "$POLICY_FILE" establishing.phase CONNECT.22
+require_property "$POLICY_FILE" next.phase CONNECT.23
 require_property "$POLICY_FILE" commits.per.phase 1
 require_property "$POLICY_FILE" intermediate.commits forbidden
 require_property "$POLICY_FILE" commit.before.full_pass forbidden
@@ -131,6 +131,16 @@ require_property "$POLICY_FILE" connect.push.scope.ownership required
 require_property "$POLICY_FILE" connect.push.tenant.crossover denied
 require_property "$POLICY_FILE" connect.push.rotation version_fenced
 require_property "$POLICY_FILE" connect.push.revocation cryptographic_erasure
+require_property "$POLICY_FILE" connect.notification.outbox.truth postgresql
+require_property "$POLICY_FILE" connect.notification.message.transaction atomic
+require_property "$POLICY_FILE" connect.notification.intent.duplicate.count 0
+require_property "$POLICY_FILE" connect.notification.payload.message.body false
+require_property "$POLICY_FILE" connect.notification.payload.provider.token false
+require_property "$POLICY_FILE" connect.notification.claim.strategy for_update_skip_locked
+require_property "$POLICY_FILE" connect.notification.lease.version.fencing required
+require_property "$POLICY_FILE" connect.notification.retry bounded
+require_property "$POLICY_FILE" connect.notification.dead.letter required
+require_property "$POLICY_FILE" connect.notification.provider.delivery deferred_connect_23
 
 [[ "$(git rev-parse 558d702bd5e7729721cde71d0e3080513798dcdd^ 2>/dev/null || true)" == \
     "e330359dc6602e9a33da891b5fdb64ed8c199f38" ]] || fail "USER_BASELINE_PARENT_MISMATCH"
@@ -216,10 +226,16 @@ require_property "$POLICY_FILE" connect.push.revocation cryptographic_erasure
     fail "CONNECT_20_COMMIT_COUNT_MISMATCH"
 [[ "$(git show -s --format=%s 3c96ce2790ba641afc28e15b662569d2204b36fa 2>/dev/null || true)" == \
     "test(connect): [CONNECT.20] prove ephemeral signal resilience" ]] || fail "CONNECT_20_SUBJECT_MISMATCH"
+[[ "$(git rev-parse 106f8d6664f58f8e976315fd84f946ad2826c75e^ 2>/dev/null || true)" == \
+    "3c96ce2790ba641afc28e15b662569d2204b36fa" ]] || fail "CONNECT_21_PARENT_MISMATCH"
+[[ "$(git rev-list --count 106f8d6664f58f8e976315fd84f946ad2826c75e 2>/dev/null || true)" == "45" ]] ||
+    fail "CONNECT_21_COMMIT_COUNT_MISMATCH"
+[[ "$(git show -s --format=%s 106f8d6664f58f8e976315fd84f946ad2826c75e 2>/dev/null || true)" == \
+    "feat(connect): [CONNECT.21] add protected push device registry" ]] || fail "CONNECT_21_SUBJECT_MISMATCH"
 
 require_property "$OWNERSHIP_FILE" manifest.version 1
 require_property "$OWNERSHIP_FILE" nexo_core.owns identity,business,branch,products,orders,payments,inventory,fiscal,accounting
-require_property "$OWNERSHIP_FILE" connect.owns conversations,participants,messages,sequences,receipts,presence,typing,media_metadata,push_device_registrations
+require_property "$OWNERSHIP_FILE" connect.owns conversations,participants,messages,sequences,receipts,presence,typing,media_metadata,push_device_registrations,notification_outbox
 require_property "$OWNERSHIP_FILE" ai_lab.owns interpretation,orchestration,authorised_handoff
 require_property "$OWNERSHIP_FILE" connect.postgres.durable_truth true
 require_property "$OWNERSHIP_FILE" connect.redis.durable_truth false
@@ -229,7 +245,7 @@ require_property "$OWNERSHIP_FILE" connect.nexo_business_mutation forbidden
 require_property "$OWNERSHIP_FILE" connect.country_specific_legal_logic forbidden
 require_property "$OWNERSHIP_FILE" integration.first_phase CONNECT.46
 
-expected_phases="CONNECT.B CONNECT.C1 CONNECT.C2 CONNECT.C3 CONNECT.C4 CONNECT.C5 CONNECT.C6 CONNECT.07 CONNECT.USER.BASELINE CONNECT.08 CONNECT.09 CONNECT.10 CONNECT.11 CONNECT.12 CONNECT.13 CONNECT.14 CONNECT.15 CONNECT.16 CONNECT.17 CONNECT.18 CONNECT.19 CONNECT.20"
+expected_phases="CONNECT.B CONNECT.C1 CONNECT.C2 CONNECT.C3 CONNECT.C4 CONNECT.C5 CONNECT.C6 CONNECT.07 CONNECT.USER.BASELINE CONNECT.08 CONNECT.09 CONNECT.10 CONNECT.11 CONNECT.12 CONNECT.13 CONNECT.14 CONNECT.15 CONNECT.16 CONNECT.17 CONNECT.18 CONNECT.19 CONNECT.20 CONNECT.21"
 actual_phases=""
 baseline_count=0
 current_count=0
@@ -256,13 +272,13 @@ while IFS=$'\t' read -r record phase status commit subject; do
             ;;
         CURRENT)
             current_count=$((current_count + 1))
-            [[ "$phase" == "CONNECT.21" && "$status" == "IMPLEMENTING" && "$commit" == "DISCOVER_BY_SUBJECT" ]] ||
+            [[ "$phase" == "CONNECT.22" && "$status" == "IMPLEMENTING" && "$commit" == "DISCOVER_BY_SUBJECT" ]] ||
                 fail "LEDGER_CURRENT_MISMATCH"
             current_subject="$subject"
             ;;
         NEXT)
             next_count=$((next_count + 1))
-            [[ "$phase" == "CONNECT.22" && "$status" == "LOCKED" && "$commit" == "-" ]] ||
+            [[ "$phase" == "CONNECT.23" && "$status" == "LOCKED" && "$commit" == "-" ]] ||
                 fail "LEDGER_NEXT_MISMATCH"
             ;;
         "")
@@ -273,24 +289,24 @@ while IFS=$'\t' read -r record phase status commit subject; do
     esac
 done < "$LEDGER_FILE"
 
-[[ "$baseline_count" -eq 22 && "$actual_phases" == "$expected_phases" ]] ||
+[[ "$baseline_count" -eq 23 && "$actual_phases" == "$expected_phases" ]] ||
     fail "LEDGER_BASELINE_SEQUENCE_MISMATCH"
 [[ "$current_count" -eq 1 && "$next_count" -eq 1 ]] || fail "LEDGER_PHASE_CARDINALITY_MISMATCH"
 
-connect_21_matches="$(git log HEAD --format='%H%x09%s' | awk -F '\t' -v expected="$current_subject" '$2 == expected { print $1 }')"
-connect_21_count="$(printf '%s\n' "$connect_21_matches" | awk 'NF { count++ } END { print count + 0 }')"
+connect_22_matches="$(git log HEAD --format='%H%x09%s' | awk -F '\t' -v expected="$current_subject" '$2 == expected { print $1 }')"
+connect_22_count="$(printf '%s\n' "$connect_22_matches" | awk 'NF { count++ } END { print count + 0 }')"
 
-if [[ "$connect_21_count" == "0" ]]; then
-    [[ "$(git rev-parse HEAD)" == "3c96ce2790ba641afc28e15b662569d2204b36fa" ]] ||
-        fail "CONNECT_21_COMMIT_MISSING_AFTER_BASELINE"
-elif [[ "$connect_21_count" == "1" ]]; then
-    connect_21_commit="$connect_21_matches"
-    [[ "$(git rev-parse "${connect_21_commit}^")" == "3c96ce2790ba641afc28e15b662569d2204b36fa" ]] ||
-        fail "CONNECT_21_PARENT_MISMATCH"
-    [[ "$(git rev-list --count "$connect_21_commit")" == "45" ]] || fail "CONNECT_21_COMMIT_COUNT_MISMATCH"
-    git merge-base --is-ancestor "$connect_21_commit" HEAD || fail "CONNECT_21_NOT_ANCESTOR"
+if [[ "$connect_22_count" == "0" ]]; then
+    [[ "$(git rev-parse HEAD)" == "106f8d6664f58f8e976315fd84f946ad2826c75e" ]] ||
+        fail "CONNECT_22_COMMIT_MISSING_AFTER_BASELINE"
+elif [[ "$connect_22_count" == "1" ]]; then
+    connect_22_commit="$connect_22_matches"
+    [[ "$(git rev-parse "${connect_22_commit}^")" == "106f8d6664f58f8e976315fd84f946ad2826c75e" ]] ||
+        fail "CONNECT_22_PARENT_MISMATCH"
+    [[ "$(git rev-list --count "$connect_22_commit")" == "46" ]] || fail "CONNECT_22_COMMIT_COUNT_MISMATCH"
+    git merge-base --is-ancestor "$connect_22_commit" HEAD || fail "CONNECT_22_NOT_ANCESTOR"
 else
-    fail "CONNECT_21_COMMIT_NOT_UNIQUE"
+    fail "CONNECT_22_COMMIT_NOT_UNIQUE"
 fi
 
 if [[ "$REQUIRE_EMPTY_TRACKED_WATCH" -eq 1 ]]; then
@@ -310,7 +326,7 @@ fi
 printf 'PHASE_GOVERNANCE=PASS\n'
 printf 'BASELINE_CONNECT_07=PASS\n'
 printf 'USER_BASELINE=PASS\n'
-printf 'ACCEPTED_CONNECT_20=PASS\n'
+printf 'ACCEPTED_CONNECT_21=PASS\n'
 printf 'OWNERSHIP_MANIFEST=PASS\n'
 printf 'ONE_COMMIT_POLICY=PASS\n'
 printf 'MANUAL_IDE_ACTIONS=FORBIDDEN\n'

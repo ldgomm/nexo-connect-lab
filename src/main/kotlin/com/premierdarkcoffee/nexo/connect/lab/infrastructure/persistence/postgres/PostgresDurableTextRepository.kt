@@ -25,9 +25,12 @@ import com.premierdarkcoffee.nexo.connect.lab.domain.persistence.ConversationPer
 import com.premierdarkcoffee.nexo.connect.lab.domain.persistence.DurableTextPersistenceBundle
 import com.premierdarkcoffee.nexo.connect.lab.domain.persistence.MessageIdentityPersistenceRecord
 import com.premierdarkcoffee.nexo.connect.lab.domain.persistence.TextMessagePersistenceRecord
+import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
 import java.sql.Connection
 import java.sql.ResultSet
 import java.sql.SQLException
+import java.util.HexFormat
 import javax.sql.DataSource
 
 class PostgresDurableTextRepository(
@@ -175,6 +178,11 @@ class PostgresDurableTextRepository(
 
         insertMessage(connection, message)
         insertIdentity(connection, identity)
+        insertNotificationOutboxIntents(
+            connection = connection,
+            conversation = postWriteConversation,
+            message = message,
+        )
 
         return DurableTextRepositoryResult.Committed(
             serverMessageRef = message.serverMessageRef,
@@ -182,10 +190,7 @@ class PostgresDurableTextRepository(
         )
     }
 
-    private fun lockConversation(
-        connection: Connection,
-        conversationRef: String,
-    ): ConversationPersistenceRecord? =
+    private fun lockConversation(connection: Connection, conversationRef: String): ConversationPersistenceRecord? =
         connection.prepareStatement(
             """
             SELECT conversation_ref, conversation_type, platform_scope_ref,
@@ -206,82 +211,76 @@ class PostgresDurableTextRepository(
         connection: Connection,
         conversationRef: String,
         senderSubjectRef: String,
-    ): ConversationParticipantPersistenceRecord? =
-        connection.prepareStatement(
-            """
+    ): ConversationParticipantPersistenceRecord? = connection.prepareStatement(
+        """
             SELECT conversation_ref, subject_ref, actor_type, status,
                    capabilities, joined_at, left_at
             FROM connect.conversation_participants
             WHERE conversation_ref = ? AND subject_ref = ?
             FOR UPDATE
-            """.trimIndent(),
-        ).use { statement ->
-            statement.setString(1, conversationRef)
-            statement.setString(2, senderSubjectRef)
-            statement.executeQuery().use { resultSet ->
-                if (resultSet.next()) resultSet.toParticipantRecord() else null
-            }
+        """.trimIndent(),
+    ).use { statement ->
+        statement.setString(1, conversationRef)
+        statement.setString(2, senderSubjectRef)
+        statement.executeQuery().use { resultSet ->
+            if (resultSet.next()) resultSet.toParticipantRecord() else null
         }
+    }
 
     private fun loadParticipants(
         connection: Connection,
         conversationRef: String,
-    ): List<ConversationParticipantPersistenceRecord> =
-        connection.prepareStatement(
-            """
+    ): List<ConversationParticipantPersistenceRecord> = connection.prepareStatement(
+        """
             SELECT conversation_ref, subject_ref, actor_type, status,
                    capabilities, joined_at, left_at
             FROM connect.conversation_participants
             WHERE conversation_ref = ?
             ORDER BY subject_ref
-            """.trimIndent(),
-        ).use { statement ->
-            statement.setString(1, conversationRef)
-            statement.executeQuery().use { resultSet ->
-                buildList {
-                    while (resultSet.next()) {
-                        add(resultSet.toParticipantRecord())
-                    }
+        """.trimIndent(),
+    ).use { statement ->
+        statement.setString(1, conversationRef)
+        statement.executeQuery().use { resultSet ->
+            buildList {
+                while (resultSet.next()) {
+                    add(resultSet.toParticipantRecord())
                 }
             }
         }
+    }
 
     private fun authorizationContext(
         conversation: ConversationPersistenceRecord,
         participants: List<ConversationParticipantPersistenceRecord>,
-    ): DurableTextAuthorizationContext =
-        DurableTextAuthorizationContext(
-            scope =
-                ConversationAccessScope(
-                    conversationRef = conversation.conversationRef,
-                    type = conversation.type,
-                    platformScopeRef = conversation.platformScopeRef,
-                    organizationScopeRef = conversation.organizationScopeRef,
-                    businessScopeRef = conversation.businessScopeRef,
-                    participants =
-                        participants.mapTo(linkedSetOf()) { participant ->
-                            ConversationParticipant(
-                                subjectRef = participant.subjectRef,
-                                actorType = participant.actorType,
-                            )
-                        },
-                ),
-            conversationStatus = conversation.status,
-            participantStates =
-                participants.mapTo(linkedSetOf()) { participant ->
-                    ConversationParticipantCommandState(
-                        subjectRef = participant.subjectRef,
-                        actorType = participant.actorType,
-                        status = participant.status,
-                        capabilities = participant.capabilities,
-                    )
-                },
-        )
+    ): DurableTextAuthorizationContext = DurableTextAuthorizationContext(
+        scope =
+        ConversationAccessScope(
+            conversationRef = conversation.conversationRef,
+            type = conversation.type,
+            platformScopeRef = conversation.platformScopeRef,
+            organizationScopeRef = conversation.organizationScopeRef,
+            businessScopeRef = conversation.businessScopeRef,
+            participants =
+            participants.mapTo(linkedSetOf()) { participant ->
+                ConversationParticipant(
+                    subjectRef = participant.subjectRef,
+                    actorType = participant.actorType,
+                )
+            },
+        ),
+        conversationStatus = conversation.status,
+        participantStates =
+        participants.mapTo(linkedSetOf()) { participant ->
+            ConversationParticipantCommandState(
+                subjectRef = participant.subjectRef,
+                actorType = participant.actorType,
+                status = participant.status,
+                capabilities = participant.capabilities,
+            )
+        },
+    )
 
-    private fun lockMessageIdentities(
-        connection: Connection,
-        request: DurableTextWriteRequest,
-    ) {
+    private fun lockMessageIdentities(connection: Connection, request: DurableTextWriteRequest) {
         val lockKeys =
             listOf(
                 "client-message-ref|${request.principal.platformScopeRef}|${request.command.senderSubjectRef}|${request.command.identity.clientMessageRef}",
@@ -303,26 +302,24 @@ class PostgresDurableTextRepository(
     private fun findIdentityByIdempotencyKey(
         connection: Connection,
         request: DurableTextWriteRequest,
-    ): MessageIdempotencyRecord? =
-        findIdentity(
-            connection = connection,
-            whereColumn = "idempotency_key",
-            platformScopeRef = request.principal.platformScopeRef,
-            senderSubjectRef = request.command.senderSubjectRef,
-            identityValue = request.command.identity.idempotencyKey,
-        )
+    ): MessageIdempotencyRecord? = findIdentity(
+        connection = connection,
+        whereColumn = "idempotency_key",
+        platformScopeRef = request.principal.platformScopeRef,
+        senderSubjectRef = request.command.senderSubjectRef,
+        identityValue = request.command.identity.idempotencyKey,
+    )
 
     private fun findIdentityByClientMessageRef(
         connection: Connection,
         request: DurableTextWriteRequest,
-    ): MessageIdempotencyRecord? =
-        findIdentity(
-            connection = connection,
-            whereColumn = "client_message_ref",
-            platformScopeRef = request.principal.platformScopeRef,
-            senderSubjectRef = request.command.senderSubjectRef,
-            identityValue = request.command.identity.clientMessageRef,
-        )
+    ): MessageIdempotencyRecord? = findIdentity(
+        connection = connection,
+        whereColumn = "client_message_ref",
+        platformScopeRef = request.principal.platformScopeRef,
+        senderSubjectRef = request.command.senderSubjectRef,
+        identityValue = request.command.identity.clientMessageRef,
+    )
 
     private fun findIdentity(
         connection: Connection,
@@ -358,32 +355,28 @@ class PostgresDurableTextRepository(
         connection: Connection,
         conversation: ConversationPersistenceRecord,
         acceptedAtServer: java.time.Instant,
-    ): ConversationPersistenceRecord =
-        connection.prepareStatement(
-            """
+    ): ConversationPersistenceRecord = connection.prepareStatement(
+        """
             UPDATE connect.conversations
             SET last_message_sequence = last_message_sequence + 1,
                 last_activity_at = GREATEST(last_activity_at, ?),
                 version = version + 1
             WHERE conversation_ref = ?
             RETURNING last_message_sequence, version
-            """.trimIndent(),
-        ).use { statement ->
-            statement.setTimestamp(1, java.sql.Timestamp.from(acceptedAtServer))
-            statement.setString(2, conversation.conversationRef)
-            statement.executeQuery().use { resultSet ->
-                check(resultSet.next()) { "Locked conversation disappeared during sequence allocation" }
-                conversation.copy(
-                    lastMessageSequence = ConversationSequence(resultSet.getLong("last_message_sequence")),
-                    version = resultSet.getLong("version"),
-                )
-            }
+        """.trimIndent(),
+    ).use { statement ->
+        statement.setTimestamp(1, java.sql.Timestamp.from(acceptedAtServer))
+        statement.setString(2, conversation.conversationRef)
+        statement.executeQuery().use { resultSet ->
+            check(resultSet.next()) { "Locked conversation disappeared during sequence allocation" }
+            conversation.copy(
+                lastMessageSequence = ConversationSequence(resultSet.getLong("last_message_sequence")),
+                version = resultSet.getLong("version"),
+            )
         }
+    }
 
-    private fun insertMessage(
-        connection: Connection,
-        message: TextMessagePersistenceRecord,
-    ) {
+    private fun insertMessage(connection: Connection, message: TextMessagePersistenceRecord) {
         connection.prepareStatement(
             """
             INSERT INTO connect.messages (
@@ -408,10 +401,7 @@ class PostgresDurableTextRepository(
         }
     }
 
-    private fun insertIdentity(
-        connection: Connection,
-        identity: MessageIdentityPersistenceRecord,
-    ) {
+    private fun insertIdentity(connection: Connection, identity: MessageIdentityPersistenceRecord) {
         connection.prepareStatement(
             """
             INSERT INTO connect.message_identities (
@@ -433,19 +423,147 @@ class PostgresDurableTextRepository(
         }
     }
 
-    private fun ResultSet.toConversationRecord(): ConversationPersistenceRecord =
-        ConversationPersistenceRecord(
-            conversationRef = getString("conversation_ref"),
-            type = ConversationType.valueOf(getString("conversation_type")),
-            platformScopeRef = getString("platform_scope_ref"),
-            organizationScopeRef = getString("organization_scope_ref"),
-            businessScopeRef = getString("business_scope_ref"),
-            status = ConversationStatus.valueOf(getString("status")),
-            createdAt = getTimestamp("created_at").toInstant(),
-            lastMessageSequence = ConversationSequence(getLong("last_message_sequence")),
-            version = getLong("version"),
-            schemaVersion = getInt("schema_version"),
-        )
+    private fun insertNotificationOutboxIntents(
+        connection: Connection,
+        conversation: ConversationPersistenceRecord,
+        message: TextMessagePersistenceRecord,
+    ) {
+        val targets = loadActiveNotificationTargets(connection, conversation, message.senderSubjectRef)
+        if (targets.isEmpty()) return
+
+        connection.prepareStatement(
+            """
+            INSERT INTO connect.notification_outbox (
+                intent_ref, platform_scope_ref, organization_scope_ref, business_scope_ref,
+                conversation_ref, server_message_ref, recipient_subject_ref,
+                recipient_actor_type, registration_ref, application, provider, environment,
+                notification_type, status, attempt_count, max_attempts, next_attempt_at,
+                lease_owner, lease_expires_at, last_error_code, delivered_at,
+                dead_lettered_at, created_at, updated_at, version
+            ) VALUES (
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                'MESSAGE_CREATED', 'PENDING', 0, ?, ?,
+                NULL, NULL, NULL, NULL, NULL, ?, ?, 0
+            )
+            """.trimIndent(),
+        ).use { statement ->
+            targets.forEach { target ->
+                statement.setString(1, notificationIntentRef(message.serverMessageRef, target.registrationRef))
+                statement.setString(2, conversation.platformScopeRef)
+                statement.setString(3, target.organizationScopeRef)
+                statement.setString(4, target.businessScopeRef)
+                statement.setString(5, conversation.conversationRef)
+                statement.setString(6, message.serverMessageRef)
+                statement.setString(7, target.subjectRef)
+                statement.setString(8, target.actorType)
+                statement.setString(9, target.registrationRef)
+                statement.setString(10, target.application)
+                statement.setString(11, target.provider)
+                statement.setString(12, target.environment)
+                statement.setInt(13, DEFAULT_NOTIFICATION_MAX_ATTEMPTS)
+                statement.setTimestamp(14, java.sql.Timestamp.from(message.acceptedAtServer))
+                statement.setTimestamp(15, java.sql.Timestamp.from(message.acceptedAtServer))
+                statement.setTimestamp(16, java.sql.Timestamp.from(message.acceptedAtServer))
+                statement.addBatch()
+            }
+            val results = statement.executeBatch()
+            check(results.size == targets.size && results.all { it == 1 || it == java.sql.Statement.SUCCESS_NO_INFO }) {
+                "Notification outbox insert did not cover every active recipient device"
+            }
+        }
+    }
+
+    private fun loadActiveNotificationTargets(
+        connection: Connection,
+        conversation: ConversationPersistenceRecord,
+        senderSubjectRef: String,
+    ): List<ActiveNotificationTarget> = connection.prepareStatement(
+        """
+            SELECT registration.registration_ref,
+                   registration.organization_scope_ref,
+                   registration.business_scope_ref,
+                   registration.subject_ref,
+                   registration.actor_type,
+                   registration.application,
+                   registration.provider,
+                   registration.environment
+            FROM connect.push_device_registrations AS registration
+            JOIN connect.conversation_participants AS participant
+              ON participant.conversation_ref = ?
+             AND participant.subject_ref = registration.subject_ref
+             AND participant.actor_type = registration.actor_type
+            WHERE registration.platform_scope_ref = ?
+              AND registration.status = 'ACTIVE'
+              AND participant.status = 'ACTIVE'
+              AND registration.subject_ref <> ?
+              AND (
+                    (registration.actor_type = 'BUSINESS'
+                        AND registration.organization_scope_ref = ?
+                        AND registration.business_scope_ref = ?)
+                    OR (registration.actor_type = 'CLIENT'
+                        AND registration.organization_scope_ref IS NULL
+                        AND registration.business_scope_ref IS NULL)
+              )
+            ORDER BY registration.subject_ref, registration.registration_ref
+            FOR SHARE OF registration, participant
+        """.trimIndent(),
+    ).use { statement ->
+        statement.setString(1, conversation.conversationRef)
+        statement.setString(2, conversation.platformScopeRef)
+        statement.setString(3, senderSubjectRef)
+        statement.setString(4, conversation.organizationScopeRef)
+        statement.setString(5, conversation.businessScopeRef)
+        statement.executeQuery().use { resultSet ->
+            buildList {
+                while (resultSet.next()) {
+                    add(
+                        ActiveNotificationTarget(
+                            registrationRef = resultSet.getString("registration_ref"),
+                            organizationScopeRef = resultSet.getString("organization_scope_ref"),
+                            businessScopeRef = resultSet.getString("business_scope_ref"),
+                            subjectRef = resultSet.getString("subject_ref"),
+                            actorType = resultSet.getString("actor_type"),
+                            application = resultSet.getString("application"),
+                            provider = resultSet.getString("provider"),
+                            environment = resultSet.getString("environment"),
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
+    private fun notificationIntentRef(serverMessageRef: String, registrationRef: String): String {
+        val digest =
+            MessageDigest.getInstance("SHA-256").digest(
+                "$serverMessageRef\u0000$registrationRef\u0000MESSAGE_CREATED".toByteArray(StandardCharsets.UTF_8),
+            )
+        return "notification-${HexFormat.of().formatHex(digest)}"
+    }
+
+    private data class ActiveNotificationTarget(
+        val registrationRef: String,
+        val organizationScopeRef: String?,
+        val businessScopeRef: String?,
+        val subjectRef: String,
+        val actorType: String,
+        val application: String,
+        val provider: String,
+        val environment: String,
+    )
+
+    private fun ResultSet.toConversationRecord(): ConversationPersistenceRecord = ConversationPersistenceRecord(
+        conversationRef = getString("conversation_ref"),
+        type = ConversationType.valueOf(getString("conversation_type")),
+        platformScopeRef = getString("platform_scope_ref"),
+        organizationScopeRef = getString("organization_scope_ref"),
+        businessScopeRef = getString("business_scope_ref"),
+        status = ConversationStatus.valueOf(getString("status")),
+        createdAt = getTimestamp("created_at").toInstant(),
+        lastMessageSequence = ConversationSequence(getLong("last_message_sequence")),
+        version = getLong("version"),
+        schemaVersion = getInt("schema_version"),
+    )
 
     private fun ResultSet.toParticipantRecord(): ConversationParticipantPersistenceRecord =
         ConversationParticipantPersistenceRecord(
@@ -469,23 +587,25 @@ class PostgresDurableTextRepository(
         return values.mapTo(linkedSetOf(), ConversationCapability::valueOf)
     }
 
-    private fun ResultSet.toIdempotencyRecord(): MessageIdempotencyRecord =
-        MessageIdempotencyRecord(
-            conversationRef = getString("conversation_ref"),
-            senderSubjectRef = getString("sender_subject_ref"),
-            identity =
-                ClientMessageIdentity(
-                    idempotencyKey = getString("idempotency_key"),
-                    clientMessageRef = getString("client_message_ref"),
-                ),
-            payloadFingerprint =
-                MessagePayloadFingerprint.fromPersistedValue(getString("payload_fingerprint")),
-            serverMessageRef = getString("server_message_ref"),
-            sequence = ConversationSequence(getLong("sequence")),
-        )
+    private fun ResultSet.toIdempotencyRecord(): MessageIdempotencyRecord = MessageIdempotencyRecord(
+        conversationRef = getString("conversation_ref"),
+        senderSubjectRef = getString("sender_subject_ref"),
+        identity =
+        ClientMessageIdentity(
+            idempotencyKey = getString("idempotency_key"),
+            clientMessageRef = getString("client_message_ref"),
+        ),
+        payloadFingerprint =
+        MessagePayloadFingerprint.fromPersistedValue(getString("payload_fingerprint")),
+        serverMessageRef = getString("server_message_ref"),
+        sequence = ConversationSequence(getLong("sequence")),
+    )
 
-    private fun deniedScopeOrMembership(): DurableTextRepositoryResult.Denied =
-        DurableTextRepositoryResult.Denied(
-            DurableTextAuthorizationDecision.DENY_SCOPE_OR_MEMBERSHIP,
-        )
+    private fun deniedScopeOrMembership(): DurableTextRepositoryResult.Denied = DurableTextRepositoryResult.Denied(
+        DurableTextAuthorizationDecision.DENY_SCOPE_OR_MEMBERSHIP,
+    )
+
+    private companion object {
+        const val DEFAULT_NOTIFICATION_MAX_ATTEMPTS = 5
+    }
 }

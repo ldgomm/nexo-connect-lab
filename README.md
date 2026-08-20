@@ -106,3 +106,9 @@ tokens are stored only as versioned AES-256-GCM ciphertext with separate HMAC
 fingerprints; registration, rotation and revocation enforce actor/application
 ownership, tenant isolation and optimistic version fencing. Revocation erases
 all protected token material, and every public result exposes metadata only.
+
+Durable offline notification intent now shares the PostgreSQL transaction that
+accepts a text message. One minimised outbox row is created per active recipient
+device, with deterministic idempotency, bounded claim leases, retries and dead
+letters. No message body or provider token enters the outbox, and APNs delivery
+remains deferred to CONNECT.23.

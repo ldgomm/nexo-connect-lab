@@ -92,10 +92,10 @@ class PostgresDurableMessageHistoryRepositoryIntegrationTest {
                 ),
                 LoadDurableMessageHistoryRequest(
                     principal =
-                        businessPrincipal.copy(
-                            organizationScopeRef = "organization-other",
-                            businessScopeRef = "business-other",
-                        ),
+                    businessPrincipal.copy(
+                        organizationScopeRef = "organization-other",
+                        businessScopeRef = "business-other",
+                    ),
                     conversationRef = "conversation-visible",
                 ),
                 LoadDurableMessageHistoryRequest(
@@ -196,24 +196,29 @@ class PostgresDurableMessageHistoryRepositoryIntegrationTest {
         assertEquals(firstRead, secondRead)
         assertEquals(listOf("Durable 3", "Durable 2", "Durable 1"), secondRead.items.map { it.body.value })
         assertEquals(stateBefore, conversationState("conversation-durable"))
-        assertEquals(3, scalarLong("SELECT count(*) FROM connect.messages WHERE conversation_ref = 'conversation-durable'"))
-        assertEquals(3, scalarLong("SELECT count(*) FROM connect.message_identities WHERE conversation_ref = 'conversation-durable'"))
+        assertEquals(
+            3,
+            scalarLong("SELECT count(*) FROM connect.messages WHERE conversation_ref = 'conversation-durable'"),
+        )
+        assertEquals(
+            3,
+            scalarLong(
+                "SELECT count(*) FROM connect.message_identities WHERE conversation_ref = 'conversation-durable'",
+            ),
+        )
     }
 
-    private fun createConversation(
-        conversationRef: String,
-        clientSubjectRef: String,
-    ) {
+    private fun createConversation(conversationRef: String, clientSubjectRef: String) {
         assertIs<ConversationCreationResult.Created>(
             conversationRepository.create(
                 CreateBusinessClientConversationRequest(
                     principal = businessPrincipal,
                     command =
-                        CreateBusinessClientConversationCommand(
-                            conversationRef = conversationRef,
-                            clientSubjectRef = clientSubjectRef,
-                            requestedAt = BASE_TIME,
-                        ),
+                    CreateBusinessClientConversationCommand(
+                        conversationRef = conversationRef,
+                        clientSubjectRef = clientSubjectRef,
+                        requestedAt = BASE_TIME,
+                    ),
                 ),
             ),
         )
@@ -232,16 +237,16 @@ class PostgresDurableMessageHistoryRepositoryIntegrationTest {
                 DurableTextWriteRequest(
                     principal = principal,
                     command =
-                        SendTextMessageCommand(
-                            conversationRef = conversationRef,
-                            senderSubjectRef = principal.subjectRef,
-                            identity =
-                                ClientMessageIdentity(
-                                    clientMessageRef = "$conversationRef-$senderTag-client-$index",
-                                    idempotencyKey = "$conversationRef-$senderTag-idempotency-$index",
-                                ),
-                            body = TextMessageBody(body),
+                    SendTextMessageCommand(
+                        conversationRef = conversationRef,
+                        senderSubjectRef = principal.subjectRef,
+                        identity =
+                        ClientMessageIdentity(
+                            clientMessageRef = "$conversationRef-$senderTag-client-$index",
+                            idempotencyKey = "$conversationRef-$senderTag-idempotency-$index",
                         ),
+                        body = TextMessageBody(body),
+                    ),
                     serverMessageRef = "$conversationRef-$senderTag-server-$index",
                     acceptedAtServer = acceptedAt,
                 ),
@@ -254,58 +259,53 @@ class PostgresDurableMessageHistoryRepositoryIntegrationTest {
         conversationRef: String,
         pageSize: Int = LoadDurableMessageHistoryRequest.DEFAULT_PAGE_SIZE,
         cursor: DurableMessageHistoryCursor? = null,
-    ): DurableMessageHistoryPage =
-        assertIs<DurableMessageHistoryResult.Loaded>(
-            historyRepository.load(
-                LoadDurableMessageHistoryRequest(
-                    principal = principal,
-                    conversationRef = conversationRef,
-                    pageSize = pageSize,
-                    cursor = cursor,
-                ),
+    ): DurableMessageHistoryPage = assertIs<DurableMessageHistoryResult.Loaded>(
+        historyRepository.load(
+            LoadDurableMessageHistoryRequest(
+                principal = principal,
+                conversationRef = conversationRef,
+                pageSize = pageSize,
+                cursor = cursor,
             ),
-        ).page
+        ),
+    ).page
 
-    private fun conversationState(conversationRef: String): List<Long> =
-        adminDataSource.connection.use { connection ->
-            connection.prepareStatement(
-                "SELECT last_message_sequence, version FROM connect.conversations WHERE conversation_ref = ?",
-            ).use { statement ->
-                statement.setString(1, conversationRef)
-                statement.executeQuery().use { resultSet ->
-                    check(resultSet.next())
-                    listOf(resultSet.getLong("last_message_sequence"), resultSet.getLong("version"))
-                }
+    private fun conversationState(conversationRef: String): List<Long> = adminDataSource.connection.use { connection ->
+        connection.prepareStatement(
+            "SELECT last_message_sequence, version FROM connect.conversations WHERE conversation_ref = ?",
+        ).use { statement ->
+            statement.setString(1, conversationRef)
+            statement.executeQuery().use { resultSet ->
+                check(resultSet.next())
+                listOf(resultSet.getLong("last_message_sequence"), resultSet.getLong("version"))
             }
         }
+    }
 
-    private fun scalarLong(sql: String): Long =
-        adminDataSource.connection.use { connection ->
-            connection.createStatement().use { statement ->
-                statement.executeQuery(sql).use { resultSet ->
-                    check(resultSet.next())
-                    resultSet.getLong(1)
-                }
+    private fun scalarLong(sql: String): Long = adminDataSource.connection.use { connection ->
+        connection.createStatement().use { statement ->
+            statement.executeQuery(sql).use { resultSet ->
+                check(resultSet.next())
+                resultSet.getLong(1)
             }
         }
+    }
 
-    private fun applicationConfig(): PostgresDatabaseConfig =
-        PostgresDatabaseConfig(
-            jdbcUrl = requiredEnvironment("CONNECT_LAB_B4_POSTGRES_APP_JDBC_URL"),
-            user = requiredEnvironment("CONNECT_LAB_B4_POSTGRES_APP_USER"),
-            password = requiredEnvironment("CONNECT_LAB_B4_POSTGRES_APP_PASSWORD"),
-            maximumPoolSize = 16,
-        )
+    private fun applicationConfig(): PostgresDatabaseConfig = PostgresDatabaseConfig(
+        jdbcUrl = requiredEnvironment("CONNECT_LAB_B4_POSTGRES_APP_JDBC_URL"),
+        user = requiredEnvironment("CONNECT_LAB_B4_POSTGRES_APP_USER"),
+        password = requiredEnvironment("CONNECT_LAB_B4_POSTGRES_APP_PASSWORD"),
+        maximumPoolSize = 16,
+    )
 
-    private fun requiredEnvironment(name: String): String =
-        System.getenv(name)?.takeIf(String::isNotBlank)
-            ?: error("Missing required environment variable: $name")
+    private fun requiredEnvironment(name: String): String = System.getenv(name)?.takeIf(String::isNotBlank)
+        ?: error("Missing required environment variable: $name")
 
     private fun resetDatabase() {
         adminDataSource.connection.use { connection ->
             connection.createStatement().use { statement ->
                 statement.execute(
-                    "TRUNCATE connect.business_client_conversation_keys, connect.message_identities, connect.messages, connect.conversation_participants, connect.conversations CASCADE",
+                    "TRUNCATE connect.notification_outbox, connect.push_device_registrations, connect.business_client_conversation_keys, connect.message_identities, connect.messages, connect.conversation_participants, connect.conversations CASCADE",
                 )
             }
         }
