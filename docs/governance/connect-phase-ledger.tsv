@@ -22,5 +22,6 @@ BASELINE	CONNECT.18	PASS	7273f10394d5c58831e27007a3c5cee4b3451987	feat(connect):
 BASELINE	CONNECT.19	PASS	7fa02c47827380bda419f426dc09f01b5bd58c47	feat(connect): [CONNECT.19] aggregate privacy-aware presence
 BASELINE	CONNECT.20	PASS	3c96ce2790ba641afc28e15b662569d2204b36fa	test(connect): [CONNECT.20] prove ephemeral signal resilience
 BASELINE	CONNECT.21	PASS	106f8d6664f58f8e976315fd84f946ad2826c75e	feat(connect): [CONNECT.21] add protected push device registry
-CURRENT	CONNECT.22	IMPLEMENTING	DISCOVER_BY_SUBJECT	feat(connect): [CONNECT.22] add durable notification outbox
-NEXT	CONNECT.23	LOCKED	-	feat(connect): [CONNECT.23] integrate APNs sandbox delivery
+BASELINE	CONNECT.22	PASS	380b9558cd69060c51c975fe343487972fc90db2	feat(connect): [CONNECT.22] add durable notification outbox
+CURRENT	CONNECT.23	IMPLEMENTING	DISCOVER_BY_SUBJECT	feat(connect): [CONNECT.23] integrate APNs sandbox delivery
+NEXT	CONNECT.24	LOCKED	-	feat(connect): [CONNECT.24] enforce push privacy and mute policy

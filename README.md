@@ -111,4 +111,14 @@ Durable offline notification intent now shares the PostgreSQL transaction that
 accepts a text message. One minimised outbox row is created per active recipient
 device, with deterministic idempotency, bounded claim leases, retries and dead
 letters. No message body or provider token enters the outbox, and APNs delivery
-remains deferred to CONNECT.23.
+is handled through the CONNECT.23 APNs sandbox adapter.
+
+APNs delivery now sits behind a replaceable provider boundary. The sandbox
+adapter uses HTTP/2 and cached ES256 authentication, resolves protected device
+tokens only inside the owner-scoped delivery callback, and sends a background
+payload containing opaque conversation/message references only. Apple
+timeouts, rate limits, unavailable responses and expired provider tokens return
+to the bounded durable retry path; permanent rejection is dead-lettered.
+Typed observability contains no device token, provider credential, response
+body or message body. Runtime scheduling and invalid-token cleanup remain in
+CONNECT.25.

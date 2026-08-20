@@ -5,11 +5,11 @@
 - Programme: `NEXO_CONNECT_LAB`
 - Repository: `connect-lab`
 - Branch: `main`
-- Accepted phase: `CONNECT.21`
-- Accepted HEAD: `106f8d6664f58f8e976315fd84f946ad2826c75e`
+- Accepted phase: `CONNECT.22`
+- Accepted HEAD: `380b9558cd69060c51c975fe343487972fc90db2`
 - Immutable user baseline: `558d702bd5e7729721cde71d0e3080513798dcdd`
-- Active phase: `CONNECT.22`
-- Next phase after acceptance: `CONNECT.23`
+- Active phase: `CONNECT.23`
+- Next phase after acceptance: `CONNECT.24`
 
 `CONNECT.07` is the accepted governance commit `e330359...`; its historical
 subject used the temporary label `[CONNECT.01]`. The hash is preserved and the
@@ -130,8 +130,17 @@ deferred to the notification outbox and adapter phases.
 its idempotency binding and every eligible recipient-device intent share one
 PostgreSQL transaction. Intents carry references only, use bounded claim
 leases, retries and dead letters, and never store message bodies or provider
-tokens. Push remains a best-effort notification path; APNs delivery is deferred
-to `CONNECT.23`.
+tokens. Push remains a best-effort notification path; APNs delivery was deferred
+from `CONNECT.22` to `CONNECT.23`.
+
+`CONNECT.23` adds a replaceable APNs sandbox provider boundary. The adapter
+uses HTTP/2, file-bounded ES256 authentication, background reference-only
+payloads, a closed response taxonomy and sanitised delivery events. Transient
+transport, rate-limit, provider and expired-token failures return to the
+durable bounded retry path; invalid registrations and permanent request errors
+become auditable dead letters. Provider tokens, device tokens, response bodies
+and message bodies are absent from logs. Scheduler orchestration and invalid
+token cleanup remain deferred to `CONNECT.25`.
 
 The empty `docker-compose.watch.yml` is tracked by the accepted user baseline.
 Later phase commits must preserve it byte-for-byte unless the user explicitly

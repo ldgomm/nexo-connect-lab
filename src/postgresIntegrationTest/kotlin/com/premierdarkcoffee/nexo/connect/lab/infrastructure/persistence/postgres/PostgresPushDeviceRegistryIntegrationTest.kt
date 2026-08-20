@@ -7,8 +7,12 @@ import com.premierdarkcoffee.nexo.connect.lab.application.persistence.RevokePush
 import com.premierdarkcoffee.nexo.connect.lab.application.persistence.RevokePushDeviceResult
 import com.premierdarkcoffee.nexo.connect.lab.application.persistence.RotatePushDeviceRequest
 import com.premierdarkcoffee.nexo.connect.lab.application.persistence.RotatePushDeviceResult
+import com.premierdarkcoffee.nexo.connect.lab.application.push.PushDeliveryTokenResolution
 import com.premierdarkcoffee.nexo.connect.lab.domain.identity.ConnectActorType
 import com.premierdarkcoffee.nexo.connect.lab.domain.identity.ConnectPrincipal
+import com.premierdarkcoffee.nexo.connect.lab.domain.push.NotificationOutboxIntent
+import com.premierdarkcoffee.nexo.connect.lab.domain.push.NotificationOutboxStatus
+import com.premierdarkcoffee.nexo.connect.lab.domain.push.NotificationType
 import com.premierdarkcoffee.nexo.connect.lab.domain.push.PushApplication
 import com.premierdarkcoffee.nexo.connect.lab.domain.push.PushDeviceRegistrationStatus
 import com.premierdarkcoffee.nexo.connect.lab.domain.push.PushEnvironment
@@ -157,6 +161,37 @@ class PostgresPushDeviceRegistryIntegrationTest {
         )
     }
 
+    @Test
+    fun `delivery token resolver decrypts only the exact active owner scoped registration`() {
+        val registered = register(CLIENT_ONE, DEVICE_ONE, TOKEN_ONE).registration
+        val resolver = PostgresPushDeliveryTokenResolver(appDataSource, codec)
+        val intent = deliveryIntent(registered.registrationRef)
+
+        val callbackCount = AtomicInteger()
+        val resolved = resolver.withActiveToken(intent) {
+            callbackCount.incrementAndGet()
+            "delivery-token-resolved"
+        }
+        assertEquals(
+            "delivery-token-resolved",
+            assertIs<PushDeliveryTokenResolution.Resolved<String>>(resolved).value,
+        )
+        assertEquals(1, callbackCount.get())
+
+        assertSame(
+            PushDeliveryTokenResolution.NotFoundOrDenied,
+            resolver.withActiveToken(intent.copy(platformScopeRef = "platform-2")) { "must-not-run" },
+        )
+
+        assertIs<RevokePushDeviceResult.Revoked>(
+            registry.revoke(revokeRequest(CLIENT_ONE, registered.registrationRef, registered.version)),
+        )
+        assertSame(
+            PushDeliveryTokenResolution.NotFoundOrDenied,
+            resolver.withActiveToken(intent) { "must-not-run" },
+        )
+    }
+
     private fun register(
         principal: ConnectPrincipal,
         deviceRef: String,
@@ -216,6 +251,34 @@ class PostgresPushDeviceRegistryIntegrationTest {
     )
 
     private fun token(value: String): PushTokenSecret = PushTokenSecret.fromBytes(value.toByteArray())
+
+    private fun deliveryIntent(registrationRef: String): NotificationOutboxIntent = NotificationOutboxIntent(
+        intentRef = "notification-intent-1",
+        platformScopeRef = CLIENT_ONE.platformScopeRef,
+        organizationScopeRef = null,
+        businessScopeRef = null,
+        conversationRef = "conversation-1",
+        serverMessageRef = "server-message-1",
+        recipientSubjectRef = CLIENT_ONE.subjectRef,
+        recipientActorType = CLIENT_ONE.actorType,
+        registrationRef = registrationRef,
+        application = PushApplication.NEXO_CLIENT_IOS,
+        provider = PushProvider.APNS,
+        environment = PushEnvironment.SANDBOX,
+        type = NotificationType.MESSAGE_CREATED,
+        status = NotificationOutboxStatus.CLAIMED,
+        attemptCount = 1,
+        maxAttempts = 4,
+        nextAttemptAt = BASE_TIME,
+        leaseOwner = "connect-apns-worker-1",
+        leaseExpiresAt = BASE_TIME.plusSeconds(30),
+        lastErrorCode = null,
+        deliveredAt = null,
+        deadLetteredAt = null,
+        createdAt = BASE_TIME,
+        updatedAt = BASE_TIME,
+        version = 1,
+    )
 
     private fun applicationConfig(): PostgresDatabaseConfig = PostgresDatabaseConfig(
         jdbcUrl = requiredEnvironment("CONNECT_LAB_B4_POSTGRES_APP_JDBC_URL"),

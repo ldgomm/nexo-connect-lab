@@ -109,6 +109,10 @@ tasks.register<Test>("semanticAcceptanceTest") {
         includeTestsMatching("*.RedisEphemeralSignalResilienceIntegrationTest")
         includeTestsMatching("*.ProtectedPushTokenCodecTest")
         includeTestsMatching("*.NotificationOutboxIntentTest")
+        includeTestsMatching("*.NotificationOutboxDeliveryWorkerTest")
+        includeTestsMatching("*.ApnsResponseClassifierTest")
+        includeTestsMatching("*.ApnsProviderTokenSourceTest")
+        includeTestsMatching("*.ApnsSandboxNotificationProviderTest")
     }
 }
 
@@ -130,6 +134,19 @@ tasks.register<Test>("notificationOutboxTest") {
     filter {
         includeTestsMatching("*.DurableTextPersistenceModelContractTest")
         includeTestsMatching("*.NotificationOutboxIntentTest")
+    }
+}
+
+tasks.register<Test>("apnsSandboxAdapterTest") {
+    description = "Verifies APNs sandbox auth, HTTP/2 request shape, response taxonomy, retries, and redaction."
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    filter {
+        includeTestsMatching("*.NotificationOutboxDeliveryWorkerTest")
+        includeTestsMatching("*.ApnsResponseClassifierTest")
+        includeTestsMatching("*.ApnsProviderTokenSourceTest")
+        includeTestsMatching("*.ApnsSandboxNotificationProviderTest")
     }
 }
 
