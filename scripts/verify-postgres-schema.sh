@@ -88,6 +88,11 @@ if [[ "$(query_scalar "SELECT count(*) FROM public.flyway_schema_history WHERE v
     exit 6
 fi
 
+if [[ "$(query_scalar "SELECT count(*) FROM public.flyway_schema_history WHERE version = '9' AND success")" != "1" ]]; then
+    printf 'ERROR=FLYWAY_HISTORY_VERSION_NINE_MISSING\n' >&2
+    exit 6
+fi
+
 if [[ "$(query_scalar "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'connect' AND table_name IN ('conversations','conversation_participants','messages','message_identities','business_client_conversation_keys')")" != "5" ]]; then
     printf 'ERROR=POSTGRES_SCHEMA_TABLE_SET_MISMATCH\n' >&2
     exit 7
@@ -129,10 +134,23 @@ if [[ "$(query_scalar "SELECT count(*) FROM information_schema.tables WHERE tabl
     printf 'ERROR=POSTGRES_PUSH_NOTIFICATION_PREFERENCE_SCHEMA_MISMATCH\n' >&2
     exit 8
 fi
+if [[ "$(query_scalar "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'connect' AND table_name IN ('conversation_blocks','conversation_block_audit_events','notification_mute_audit_events')")" != "3" ]] ||
+    [[ "$(query_scalar "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'connect' AND table_name = 'conversation_blocks'")" != "15" ]] ||
+    [[ "$(query_scalar "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'connect' AND table_name = 'conversation_block_audit_events'")" != "14" ]] ||
+    [[ "$(query_scalar "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'connect' AND table_name = 'notification_mute_audit_events'")" != "9" ]] ||
+    [[ "$(query_scalar "SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace WHERE n.nspname = 'connect' AND c.conname IN ('pk_connect_conversation_blocks','uq_connect_conversation_block_direction','uq_connect_conversation_block_scope','fk_connect_block_conversation_scope','fk_connect_block_blocker','fk_connect_block_blocked','ck_connect_block_ref','ck_connect_block_scope_type','ck_connect_block_conversation_ref','ck_connect_block_platform_scope','ck_connect_block_organization_scope','ck_connect_block_business_scope','ck_connect_block_subject_refs','ck_connect_block_actor_types','ck_connect_block_distinct_participants','ck_connect_block_status','ck_connect_block_version','ck_connect_block_timestamps','pk_connect_block_audit_events','uq_connect_block_audit_version','fk_connect_block_audit_scope','fk_connect_block_audit_blocker','fk_connect_block_audit_blocked','ck_connect_block_audit_ref','ck_connect_block_audit_scope_type','ck_connect_block_audit_action','ck_connect_block_audit_version','pk_connect_mute_audit_events','uq_connect_mute_audit_version','fk_connect_mute_audit_preference','fk_connect_mute_audit_owner','fk_connect_mute_audit_participant','ck_connect_mute_audit_ref','ck_connect_mute_audit_actor_type','ck_connect_mute_audit_action','ck_connect_mute_audit_version')")" != "36" ]] ||
+    [[ "$(query_scalar "SELECT count(*) FROM pg_indexes WHERE schemaname = 'connect' AND indexname = 'ix_connect_conversation_blocks_authorization'")" != "1" ]] ||
+    [[ "$(query_scalar "SELECT count(*) FROM information_schema.role_table_grants WHERE table_schema = 'connect' AND table_name = 'conversation_blocks' AND grantee = '${POSTGRES_APP_USER}' AND privilege_type IN ('SELECT','INSERT','UPDATE')")" != "3" ]] ||
+    [[ "$(query_scalar "SELECT count(*) FROM information_schema.role_table_grants WHERE table_schema = 'connect' AND table_name IN ('conversation_block_audit_events','notification_mute_audit_events') AND grantee = '${POSTGRES_APP_USER}' AND privilege_type IN ('SELECT','INSERT')")" != "4" ]] ||
+    [[ "$(query_scalar "SELECT count(*) FROM information_schema.role_table_grants WHERE table_schema = 'connect' AND table_name IN ('conversation_block_audit_events','notification_mute_audit_events') AND grantee = '${POSTGRES_APP_USER}' AND privilege_type IN ('UPDATE','DELETE','TRUNCATE')")" != "0" ]]; then
+    printf 'ERROR=POSTGRES_CONVERSATION_SAFETY_SCHEMA_MISMATCH\n' >&2
+    exit 8
+fi
 printf 'POSTGRES_SCHEMA_OBJECTS=PASS\n'
 printf 'POSTGRES_PUSH_DEVICE_REGISTRY_SCHEMA=PASS\n'
 printf 'POSTGRES_NOTIFICATION_OUTBOX_SCHEMA=PASS\n'
 printf 'POSTGRES_PUSH_NOTIFICATION_PREFERENCE_SCHEMA=PASS\n'
+printf 'POSTGRES_CONVERSATION_SAFETY_SCHEMA=PASS\n'
 
 compose exec -T postgres psql -X -v ON_ERROR_STOP=1 \
     -U "$POSTGRES_USER" -d "$DATABASE_NAME" <<'SQL'

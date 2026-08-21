@@ -5,11 +5,11 @@
 - Programme: `NEXO_CONNECT_LAB`
 - Repository: `connect-lab`
 - Branch: `main`
-- Accepted phase: `CONNECT.24`
-- Accepted HEAD: `a4fc29473431fa0c2a8f97ac358ff34201f798a1`
+- Accepted phase: `CONNECT.25`
+- Accepted HEAD: `605dee6e3b85ac6a4ed072f2f5b0328aee830dd9`
 - Immutable user baseline: `558d702bd5e7729721cde71d0e3080513798dcdd`
-- Active phase: `CONNECT.25`
-- Next phase after acceptance: `CONNECT.26`
+- Active phase: `CONNECT.26`
+- Next phase after acceptance: `CONNECT.27`
 
 `CONNECT.07` is the accepted governance commit `e330359...`; its historical
 subject used the temporary label `[CONNECT.01]`. The hash is preserved and the
@@ -155,6 +155,14 @@ only the exact resolved token version and erase its protected material; a
 concurrent rotation wins and returns the intent to bounded retry. Provider
 outage, rotation and reconnect retain one durable message, one outbox intent
 and exactly one authorised PostgreSQL catch-up event.
+
+`CONNECT.26` introduces a version-fenced, directional security-block model
+with full conversation scope and append-only transactional audit. Either active
+direction denies at the authorization port, including unavailable block truth.
+Notification mute remains the existing participant-owned conversation/device
+preference, now with append-only transition audit, and cannot alter durable
+message truth. Uniform runtime enforcement across every transport flow remains
+the single deliverable of `CONNECT.27`.
 
 The empty `docker-compose.watch.yml` is tracked by the accepted user baseline.
 Later phase commits must preserve it byte-for-byte unless the user explicitly

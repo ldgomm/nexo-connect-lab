@@ -34,6 +34,8 @@ APP_PASSWORD="$(read_env_value CONNECT_LAB_POSTGRES_APP_PASSWORD)"
 DATABASE_NAME="$(read_env_value CONNECT_LAB_DATABASE_NAME)"
 HTTP_HOST_PORT="$(read_env_value CONNECT_LAB_HTTP_HOST_PORT)"
 MIGRATION_USER="$(read_env_value CONNECT_LAB_POSTGRES_USER)"
+EXPECTED_FLYWAY_MIGRATION_COUNT="9"
+EXPECTED_APP_READ_WRITE_TABLE_COUNT="10"
 
 if [[ "$APP_USER" != "nexo_connect_lab_app" ]] ||
     [[ -z "$APP_PASSWORD" ]] ||
@@ -48,7 +50,7 @@ query_scalar() {
         -U "$MIGRATION_USER" -d "$DATABASE_NAME" -tAc "$1" | tr -d '[:space:]'
 }
 
-if [[ "$(query_scalar "SELECT count(*) FROM public.flyway_schema_history WHERE version IN ('1', '2', '3', '4', '5', '6', '7', '8') AND success")" != "8" ]] ||
+if [[ "$(query_scalar "SELECT count(*) FROM public.flyway_schema_history WHERE version IN ('1', '2', '3', '4', '5', '6', '7', '8', '9') AND success")" != "$EXPECTED_FLYWAY_MIGRATION_COUNT" ]] ||
     ! compose logs --no-color app 2>&1 | grep -F 'CONNECT_DATABASE_POOL=READY' >/dev/null; then
     printf 'ERROR=APPLICATION_FLYWAY_VALIDATION_EVIDENCE_MISSING\n' >&2
     exit 3
@@ -60,7 +62,7 @@ if [[ "$(query_scalar "SELECT count(*) FROM pg_roles WHERE rolname = '${APP_USER
     exit 4
 fi
 
-if [[ "$(query_scalar "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'connect' AND has_table_privilege('${APP_USER}', quote_ident(table_schema) || '.' || quote_ident(table_name), 'SELECT') AND has_table_privilege('${APP_USER}', quote_ident(table_schema) || '.' || quote_ident(table_name), 'INSERT') AND has_table_privilege('${APP_USER}', quote_ident(table_schema) || '.' || quote_ident(table_name), 'UPDATE')")" != "9" ]] ||
+if [[ "$(query_scalar "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'connect' AND has_table_privilege('${APP_USER}', quote_ident(table_schema) || '.' || quote_ident(table_name), 'SELECT') AND has_table_privilege('${APP_USER}', quote_ident(table_schema) || '.' || quote_ident(table_name), 'INSERT') AND has_table_privilege('${APP_USER}', quote_ident(table_schema) || '.' || quote_ident(table_name), 'UPDATE')")" != "$EXPECTED_APP_READ_WRITE_TABLE_COUNT" ]] ||
     [[ "$(query_scalar "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'connect' AND (has_table_privilege('${APP_USER}', quote_ident(table_schema) || '.' || quote_ident(table_name), 'DELETE') OR has_table_privilege('${APP_USER}', quote_ident(table_schema) || '.' || quote_ident(table_name), 'TRUNCATE') OR has_table_privilege('${APP_USER}', quote_ident(table_schema) || '.' || quote_ident(table_name), 'REFERENCES') OR has_table_privilege('${APP_USER}', quote_ident(table_schema) || '.' || quote_ident(table_name), 'TRIGGER'))")" != "0" ]] ||
     [[ "$(query_scalar "SELECT has_schema_privilege('${APP_USER}', 'connect', 'CREATE')")" != "f" ]] ||
     [[ "$(query_scalar "SELECT has_table_privilege('${APP_USER}', 'public.flyway_schema_history', 'SELECT')")" != "t" ]]; then

@@ -115,6 +115,8 @@ tasks.register<Test>("semanticAcceptanceTest") {
         includeTestsMatching("*.ApnsProviderTokenSourceTest")
         includeTestsMatching("*.ApnsSandboxNotificationProviderTest")
         includeTestsMatching("*.PushNotificationPolicyTest")
+        includeTestsMatching("*.ConversationSafetyModelTest")
+        includeTestsMatching("*.ConversationBlockAuthorizationTest")
     }
 }
 
@@ -176,6 +178,18 @@ tasks.register<Test>("offlinePushRecoveryTest") {
         includeTestsMatching("*.ApnsResponseClassifierTest")
         includeTestsMatching("*.ApnsSandboxNotificationProviderTest")
         includeTestsMatching("*.DurableConversationCatchUpTest")
+    }
+}
+
+tasks.register<Test>("durableBlockAndMuteModelTest") {
+    description = "Verifies scoped directional blocks, fail-closed authorization, and independent notification mute."
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    filter {
+        includeTestsMatching("*.ConversationSafetyModelTest")
+        includeTestsMatching("*.ConversationBlockAuthorizationTest")
+        includeTestsMatching("*.PushNotificationPolicyTest")
     }
 }
 

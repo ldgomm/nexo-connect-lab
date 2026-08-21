@@ -58,7 +58,8 @@ class PostgresPushDeviceRegistryIntegrationTest {
                 registrationRefSupplier = { "push-registration-${sequence.incrementAndGet()}" },
             )
         executeAdmin(
-            "TRUNCATE connect.push_notification_preferences, connect.notification_outbox, " +
+            "TRUNCATE connect.notification_mute_audit_events, connect.push_notification_preferences, " +
+                "connect.notification_outbox, " +
                 "connect.push_device_registrations",
         )
     }

@@ -10,15 +10,20 @@ import com.premierdarkcoffee.nexo.connect.lab.domain.push.NotificationBadgeMode
 import com.premierdarkcoffee.nexo.connect.lab.domain.push.NotificationLockScreenPrivacy
 import com.premierdarkcoffee.nexo.connect.lab.domain.push.NotificationQuietMode
 import com.premierdarkcoffee.nexo.connect.lab.domain.push.PushNotificationPreference
+import com.premierdarkcoffee.nexo.connect.lab.domain.safety.ConversationSafetyAuditAction
+import com.premierdarkcoffee.nexo.connect.lab.domain.safety.requireSafetyReference
 import java.sql.Connection
 import java.sql.PreparedStatement
 import java.sql.ResultSet
 import java.sql.SQLException
 import java.sql.Timestamp
+import java.util.UUID
 import javax.sql.DataSource
 
-class PostgresPushNotificationPreferenceRepository(private val dataSource: DataSource) :
-    PushNotificationPreferenceRepository {
+class PostgresPushNotificationPreferenceRepository(
+    private val dataSource: DataSource,
+    private val auditRefSupplier: () -> String = { UUID.randomUUID().toString() },
+) : PushNotificationPreferenceRepository {
     override fun put(request: PutPushNotificationPreferenceRequest): PutPushNotificationPreferenceResult =
         serializableTransaction { connection ->
             val owner = findOwnedTarget(connection, request.principal, request.conversationRef, request.registrationRef)
@@ -29,12 +34,34 @@ class PostgresPushNotificationPreferenceRepository(private val dataSource: DataS
                 existing == null && request.expectedVersion == 0L -> {
                     val inserted = insertPreference(connection, request, owner)
                         ?: return@serializableTransaction PutPushNotificationPreferenceResult.NotFoundOrDenied
+                    if (inserted.muted) {
+                        appendMuteAudit(
+                            connection = connection,
+                            request = request,
+                            owner = owner,
+                            preference = inserted,
+                            action = ConversationSafetyAuditAction.APPLIED,
+                        )
+                    }
                     PutPushNotificationPreferenceResult.Updated(inserted, created = true)
                 }
 
                 existing != null && existing.version == request.expectedVersion -> {
                     val updated = updatePreference(connection, request)
                         ?: return@serializableTransaction PutPushNotificationPreferenceResult.NotFoundOrDenied
+                    if (existing.muted != updated.muted) {
+                        appendMuteAudit(
+                            connection = connection,
+                            request = request,
+                            owner = owner,
+                            preference = updated,
+                            action = if (updated.muted) {
+                                ConversationSafetyAuditAction.APPLIED
+                            } else {
+                                ConversationSafetyAuditAction.REVOKED
+                            },
+                        )
+                    }
                     PutPushNotificationPreferenceResult.Updated(updated, created = false)
                 }
 
@@ -206,6 +233,36 @@ class PostgresPushNotificationPreferenceRepository(private val dataSource: DataS
         statement.setString(startAt + 2, principal.businessScopeRef)
         statement.setString(startAt + 3, principal.subjectRef)
         statement.setString(startAt + 4, principal.actorType.name)
+    }
+
+    private fun appendMuteAudit(
+        connection: Connection,
+        request: PutPushNotificationPreferenceRequest,
+        owner: OwnedPreferenceTarget,
+        preference: PushNotificationPreference,
+        action: ConversationSafetyAuditAction,
+    ) {
+        val auditRef = auditRefSupplier().also { requireSafetyReference(it, "auditRef") }
+        connection.prepareStatement(
+            """
+            INSERT INTO connect.notification_mute_audit_events (
+                audit_ref, conversation_ref, registration_ref,
+                platform_scope_ref, subject_ref, actor_type,
+                action, resulting_version, occurred_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """.trimIndent(),
+        ).use { statement ->
+            statement.setString(1, auditRef)
+            statement.setString(2, preference.conversationRef)
+            statement.setString(3, preference.registrationRef)
+            statement.setString(4, owner.platformScopeRef)
+            statement.setString(5, owner.subjectRef)
+            statement.setString(6, owner.actorType)
+            statement.setString(7, action.name)
+            statement.setLong(8, preference.version)
+            statement.setTimestamp(9, Timestamp.from(request.now))
+            check(statement.executeUpdate() == 1) { "Notification mute audit insert was not durable" }
+        }
     }
 
     private fun ResultSet.toPreference(): PushNotificationPreference = PushNotificationPreference(
